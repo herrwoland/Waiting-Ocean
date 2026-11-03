@@ -401,12 +401,7 @@ func _process_ladder(delta: float) -> void:
 		head.rotation.y -= signf(_ladder_look_off()) * over * (1.0 - exp(-8.0 * delta))
 	if _climb_exit >= 0.0:
 		_climb_exit = minf(_climb_exit + delta / maxf(ladder.exit_time, 0.01), 1.0)
-		var k := smoothstep(0.0, 1.0, _climb_exit)
-		var from: Vector3 = ladder.point(1.0)
-		var to: Vector3 = ladder.top_exit.global_position
-		var p := from.lerp(to, k)
-		p.y += sin(k * PI) * 0.25 # up and over the edge
-		global_position = p
+		global_position = ladder_position()
 		climb_rate = ladder.climb_speed # still climbing, over the edge
 		if _climb_exit >= 1.0:
 			_leave_ladder(true)
@@ -429,7 +424,18 @@ func _process_ladder(delta: float) -> void:
 			return
 	climb_rate = (_climb_t - was_t) * ladder.length() / maxf(delta, 1e-6) # 0 when held at an end
 	_grab_blend = move_toward(_grab_blend, 0.0, delta / LADDER_GRAB_TIME)
-	global_position = ladder.point(_climb_t) + ladder.global_basis * _grab_offset * smoothstep(0.0, 1.0, _grab_blend)
+	global_position = ladder_position()
+
+## Where we are on the ladder (the feet), from where it is right now. The physics engine moves the
+## ship after our physics step, so the position set there is a step behind her as drawn: the body
+## asks again when it is drawn (see player_body.gd), or a heaving ship slid it up and down the rails.
+func ladder_position() -> Vector3:
+	if _climb_exit >= 0.0:
+		var k := smoothstep(0.0, 1.0, _climb_exit)
+		var p: Vector3 = ladder.point(1.0).lerp(ladder.top_exit.global_position, k)
+		p.y += sin(k * PI) * 0.25 # up and over the edge
+		return p
+	return ladder.point(_climb_t) + ladder.global_basis * _grab_offset * smoothstep(0.0, 1.0, _grab_blend)
 
 func _leave_ladder(at_top: bool) -> void:
 	state = State.WALK

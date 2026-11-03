@@ -282,11 +282,33 @@ func _library_for(skel_path: NodePath) -> AnimationLibrary:
 					var path := a.track_get_path(t)
 					if path.get_subname_count() > 0: # a bone: Skeleton3D:bone
 						a.track_set_path(t, NodePath(str(skel_path) + ':' + path.get_concatenated_subnames()))
+				_fill_rest(a, skel_path)
 				if lib.has_animation(clip):
 					lib.remove_animation(clip)
 				lib.add_animation(clip, a)
 		src.free()
 	return lib
+
+## Every bone `a` doesn't move gets a track holding it at rest. A bone a clip has no track for is
+## left where the clip before it put it (Blender's exporter drops the channels that never change):
+## the climb clips had none for the upper back, collarbones and neck, so on the ladder they kept
+## the walk's or the swim's, and the hands landed somewhere else every time we got on.
+func _fill_rest(a: Animation, skel_path: NodePath) -> void:
+	var have := {}
+	for t in a.get_track_count():
+		have[[a.track_get_type(t), String(a.track_get_path(t).get_concatenated_subnames())]] = true
+	for b in _skel.get_bone_count():
+		var bone := _skel.get_bone_name(b)
+		var path := NodePath(str(skel_path) + ':' + bone)
+		var rest := _skel.get_bone_rest(b)
+		if not have.has([Animation.TYPE_ROTATION_3D, bone]):
+			var t := a.add_track(Animation.TYPE_ROTATION_3D)
+			a.track_set_path(t, path)
+			a.rotation_track_insert_key(t, 0.0, rest.basis.get_rotation_quaternion())
+		if not have.has([Animation.TYPE_POSITION_3D, bone]):
+			var t := a.add_track(Animation.TYPE_POSITION_3D)
+			a.track_set_path(t, path)
+			a.position_track_insert_key(t, 0.0, rest.origin)
 
 ## The copy you see loses its head (and eyes, brows, hair); the full one only casts the shadow.
 func _split_head() -> void:
@@ -406,6 +428,9 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 	var climbing: bool = p.state == p.State.CLIMB and is_instance_valid(p.ladder)
 	_ladder_blend = move_toward(_ladder_blend, 1.0 if climbing else 0.0, delta / maxf(ladder_blend_time, 0.01))
 	var upright := _model.global_transform # hung from the camera (see _process())
+	# where we are on it, from where the ship is now (the player's own position is a physics step
+	# behind her, see Player.ladder_position())
+	var stand: Vector3 = p.ladder_position() if climbing else p.global_position
 	if climbing:
 		var l = p.ladder
 		var up: Vector3 = (l.point(1.0) - l.point(0.0)).normalized() # along the climb, with her
@@ -417,12 +442,15 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 		fwd = turn * fwd
 		var right := fwd.cross(up).normalized()
 		var lean := Basis(-right, up, fwd).scaled(_model.scale)
-		_model.global_transform = Transform3D(lean, p.global_position)
+		_model.global_transform = Transform3D(lean, stand)
 		var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
-		var eye_height: float = player.camera.global_position.y - p.global_position.y # the pivot is at rest here
+		# the camera's height above the feet (the pivot is at rest here), without the nudge that
+		# keeps the eyes out of the waterline: the waves washing round the ladder's foot pushed the
+		# body up and down the rails with it
+		var eye_height: float = player.camera.global_position.y - p.global_position.y - p._eye_offset
 		# eye_back measured along where the body faces, not the view: by the view, the whole body
 		# swung round the camera as we looked about, taking the hands off the rails
-		var offset: Vector3 = up * eye_height - fwd * eye_back - (eyes - p.global_position)
+		var offset: Vector3 = up * eye_height - fwd * eye_back - (eyes - stand)
 		offset += right * ladder_shift_side + up * ladder_shift_up + fwd * ladder_shift_in
 		_ladder = l
 		var inv: Basis = l.global_basis.inverse()
@@ -436,7 +464,7 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 		return
 	# stepped off, the lean eases out, but the body comes along with us from where we are
 	var b: Basis = _ladder.global_basis
-	var on_it := Transform3D(b * _ladder_lean, p.global_position + b * _ladder_offset)
+	var on_it := Transform3D(b * _ladder_lean, stand + b * _ladder_offset)
 	var k := smoothstep(0.0, 1.0, _ladder_blend)
 	_model.global_transform = upright.interpolate_with(on_it, k)
 	_rig.twist *= 1.0 - k # the back stays square to the ladder as we look round: it turned the shoulders, and the hands with them, off the rails
