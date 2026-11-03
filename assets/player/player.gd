@@ -95,6 +95,9 @@ var ladder: Node = null # the Ladder we are on (see ladder.gd)
 var _ladders_in_reach: Array[Node] = []
 var _climb_t := 0.0 # where on the ladder, 0 = bottom, 1 = top
 var _climb_exit := -1.0 # 0..1 while stepping over the top, -1 otherwise
+## On a ladder: how fast we are climbing it (m/s along it, < 0 going down). The body's climb clip
+## keeps pace with it (see player_body.gd).
+var climb_rate := 0.0
 var _ladder_regrab_block := false # just got off: let go of the keys before a ladder takes us again
 var _grab_offset := Vector3.ZERO # where we were when we grabbed, relative to the ladder (its space)
 var _grab_blend := 0.0 # 1 at the grab, easing to 0 as we are pulled onto the ladder
@@ -380,6 +383,7 @@ func _process_ladder(delta: float) -> void:
 		var p := from.lerp(to, k)
 		p.y += sin(k * PI) * 0.25 # up and over the edge
 		global_position = p
+		climb_rate = ladder.climb_speed # still climbing, over the edge
 		if _climb_exit >= 1.0:
 			_leave_ladder(true)
 		return
@@ -388,6 +392,7 @@ func _process_ladder(delta: float) -> void:
 		return
 	var up := maxf(Input.get_action_strength(&'move_forward'), 1.0 if Input.is_action_pressed(&'jump') else 0.0)
 	var input := clampf(up - Input.get_action_strength(&'move_back'), -1.0, 1.0)
+	var was_t := _climb_t
 	_climb_t += input * ladder.climb_speed / maxf(ladder.length(), 0.1) * delta
 	if _climb_t >= 1.0:
 		_climb_t = 1.0
@@ -398,12 +403,14 @@ func _process_ladder(delta: float) -> void:
 		if input < 0.0:
 			_leave_ladder(false)
 			return
+	climb_rate = (_climb_t - was_t) * ladder.length() / maxf(delta, 1e-6) # 0 when held at an end
 	_grab_blend = move_toward(_grab_blend, 0.0, delta / LADDER_GRAB_TIME)
 	global_position = ladder.point(_climb_t) + ladder.global_basis * _grab_offset * smoothstep(0.0, 1.0, _grab_blend)
 
 func _leave_ladder(at_top: bool) -> void:
 	state = State.WALK
 	ladder = null
+	climb_rate = 0.0
 	_climb_exit = -1.0
 	collider.disabled = false
 	velocity = Vector3.ZERO

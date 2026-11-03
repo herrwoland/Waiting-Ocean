@@ -43,6 +43,10 @@ const WATER_MAT := preload('res://assets/water/mat_water.tres') # its underwater
 @export var jog_pace := 3.4
 @export var sprint_pace := 6.0
 @export var swim_pace := 1.5
+## How far (m, in the game) one cycle of the climb clip (Climb) takes the body up a ladder: its
+## hands' reach, so they keep pace with the rungs. Climb_Loop's hands go 0.36 m at the rig's own size,
+## and the game draws the body 1.24 times that.
+@export var climb_cycle := 0.45
 ## Seconds the body takes to lie along the view when it starts swimming under the water, and to
 ## stand back up when it stops (or comes up to the surface).
 @export var swim_lean_time := 0.4
@@ -751,8 +755,16 @@ func _pick(delta: float) -> Array:
 			var back := Vector2(p.swim_stroke.x, p.swim_stroke.z).dot(Vector2(facing.x, facing.z)) < -0.1
 			return [&'Swim_Fwd', (-1.0 if back else 1.0) * clampf(stroke / swim_pace, 0.5, 2.0)]
 		return [&'Swim_Idle', 1.0]
+	if p.state == p.State.CLIMB and _anim.has_animation(&'Climb'):
+		var rate: float = p.climb_rate
+		if absf(rate) > 0.05:
+			# as many cycles a second as it takes to keep up with the climb; backwards going down
+			return [&'Climb', rate / maxf(climb_cycle, 0.01) * _anim.get_animation(&'Climb').length]
+		if _anim.has_animation(&'Climb_Idle'):
+			return [&'Climb_Idle', 1.0] # hanging on
+		return [&'Climb', 0.0] # held where it stopped
 	if p.state != p.State.WALK:
-		return [&'Idle', 1.0] # at a station, on a ladder
+		return [&'Idle', 1.0] # at a station
 	if p.is_on_floor():
 		if _airborne > 0.35:
 			_landing = 0.35 # came down from a real fall or jump
