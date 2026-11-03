@@ -496,14 +496,18 @@ func _carry(delta: float) -> void:
 	_rig.thumb = Vector2.ZERO
 	_rig.thumb_grip = _carry_close / maxf(carry_grip, 0.01) * carry_thumb
 
-## Where the body faces: the wheel at the helm; with the view while walking or swimming (quickly);
+## Where the body faces: the wheel at the helm; the ladder on a ladder, whatever the view (the back
+## and neck still turn toward it, max_twist); with the view while walking or swimming (quickly);
 ## standing, it lets the view swing free_look either way before the feet shuffle round after it.
 func _face(view_yaw: float, delta: float) -> void:
 	if is_nan(_yaw):
 		_yaw = view_yaw
 	var p = player
 	var moving := Vector2(p.velocity.x, p.velocity.z).length() > 0.3
-	if p.state == p.State.SWIM or moving:
+	if p.state == p.State.CLIMB and is_instance_valid(p.ladder):
+		var f: Vector3 = p.ladder.facing()
+		_yaw = lerp_angle(_yaw, atan2(-f.x, -f.z), 1.0 - exp(-10.0 * delta)) # turned onto it as we grab it
+	elif p.state == p.State.SWIM or moving:
 		_yaw = lerp_angle(_yaw, view_yaw, 1.0 - exp(-10.0 * delta))
 	else:
 		var off := angle_difference(_yaw, view_yaw)
@@ -743,7 +747,9 @@ func _pick(delta: float) -> Array:
 		# being rocked by the waves or sinking is not
 		var stroke: float = p.swim_stroke.length()
 		if stroke > 0.3:
-			return [&'Swim_Fwd', clampf(stroke / swim_pace, 0.5, 2.0)]
+			# backing off, the strokes run backwards (straight up or down they don't)
+			var back := Vector2(p.swim_stroke.x, p.swim_stroke.z).dot(Vector2(facing.x, facing.z)) < -0.1
+			return [&'Swim_Fwd', (-1.0 if back else 1.0) * clampf(stroke / swim_pace, 0.5, 2.0)]
 		return [&'Swim_Idle', 1.0]
 	if p.state != p.State.WALK:
 		return [&'Idle', 1.0] # at a station, on a ladder
