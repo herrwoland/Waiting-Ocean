@@ -47,6 +47,7 @@ const WATER_MAT := preload('res://assets/water/mat_water.tres') # its underwater
 ## hands' reach, so they keep pace with the rungs. Climb_Loop's hands go 0.36 m at the rig's own size,
 ## and the game draws the body 1.24 times that.
 @export var climb_cycle := 0.45
+@export_group('Ladder')
 ## Seconds the body takes to go over to the ladder's lean and the ship's motion as it grabs on (and
 ## back to upright, hung from the camera, as it steps off).
 @export var ladder_blend_time := 0.25
@@ -54,6 +55,17 @@ const WATER_MAT := preload('res://assets/water/mat_water.tres') # its underwater
 ## Player's ladder_look_limit), and from how far round (degrees) it starts to.
 @export var ladder_lean_out := 0.3
 @export_range(0.0, 180.0, 1.0) var ladder_lean_from := 40.0
+## Fitting the body to the ladder, to put the climb clip's hands and feet on the rails and rungs
+## (the view goes with it). In the ladder's own frame, so it holds as the ship rolls; drag them
+## with the game running (Remote tree) to see it. Sideways (m, > 0 to the body's right)...
+@export_range(-0.5, 0.5, 0.005, 'suffix:m') var ladder_shift_side := 0.0
+## ...up and down along the ladder (m)...
+@export_range(-1.0, 1.0, 0.005, 'suffix:m') var ladder_shift_up := 0.0
+## ...toward the ladder (m, < 0 away from it)...
+@export_range(-0.5, 0.5, 0.005, 'suffix:m') var ladder_shift_in := 0.0
+## ...and turned about the ladder's length (degrees, > 0 to the left).
+@export_range(-45.0, 45.0, 0.5, 'suffix:°') var ladder_turn := 0.0
+@export_group('')
 ## Seconds the body takes to lie along the view when it starts swimming under the water, and to
 ## stand back up when it stops (or comes up to the surface).
 @export var swim_lean_time := 0.4
@@ -388,6 +400,8 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 		var fwd := (f - up * f.dot(up)).normalized()
 		if fwd.length_squared() < 0.5:
 			fwd = (-l.global_basis.z - up * (-l.global_basis.z).dot(up)).normalized()
+		var turn := Basis(up, deg_to_rad(ladder_turn)) # the fitting sliders (see ladder_shift_side)
+		fwd = turn * fwd
 		var right := fwd.cross(up).normalized()
 		var lean := Basis(-right, up, fwd).scaled(_model.scale)
 		_model.global_transform = Transform3D(lean, p.global_position)
@@ -396,6 +410,7 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 		# eye_back measured along where the body faces, not the view: by the view, the whole body
 		# swung round the camera as we looked about, taking the hands off the rails
 		var offset: Vector3 = up * eye_height - fwd * eye_back - (eyes - p.global_position)
+		offset += right * ladder_shift_side + up * ladder_shift_up + fwd * ladder_shift_in
 		_ladder = l
 		var inv: Basis = l.global_basis.inverse()
 		_ladder_lean = inv * lean # in the ladder's space, so it moves with her
