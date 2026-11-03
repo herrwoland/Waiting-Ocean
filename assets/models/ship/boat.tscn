@@ -161,7 +161,7 @@ height = 0.17443848
 radius = 0.69921875
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_s6qt6"]
-size = Vector3(3.3085938, 13.639282, 2.0875854)
+size = Vector3(1.5126953, 2.901936, 2.0875854)
 
 [sub_resource type="Gradient" id="Gradient_t42vp"]
 offsets = PackedFloat32Array(0, 0.1, 0.6, 1)
@@ -670,7 +670,7 @@ top = NodePath("Top")
 top_exit = NodePath("../LadderPortDeck")
 
 [node name="LadderPortShape" type="CollisionShape3D" parent="LadderPort" unique_id=1272002090]
-transform = Transform3D(1, 0, 0, 0, 0.9659258, 0.25881904, 0, -0.25881904, 0.9659258, -0.0009765625, -2.513629, 1.6562576)
+transform = Transform3D(1, 0, 0, 0, 0.9659258, 0.25881904, 0, -0.25881904, 0.9659258, -0.0009765625, -0.9059365, 1.2949543)
 shape = SubResource("BoxShape3D_s6qt6")
 
 [node name="Bottom" type="Marker3D" parent="LadderPort" unique_id=1733400101]
@@ -682,7 +682,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.35, 0.99)
 [node name="StairsModel" type="Node3D" parent="LadderPort" unique_id=1310250006]
 
 [node name="ladder" parent="LadderPort/StairsModel" unique_id=549469516 instance=ExtResource("9_4dvsp")]
-transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, 0, -4.359698, -0.8362036)
+transform = Transform3D(5, 0, 0, 0, 5, 0, 0, 0, 5, 0, -1.7192984, 0.028658867)
 
 [node name="LadderPortDeck" type="Marker3D" parent="." unique_id=311907477]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.8624725, -0.49571723, 5.869631)
@@ -697,19 +697,22 @@ top = NodePath("Top")
 top_exit = NodePath("../LadderStarboardDeck")
 
 [node name="LadderStarboardShape" type="CollisionShape3D" parent="LadderStarboard" unique_id=99035561]
-transform = Transform3D(1, 0, 0, 0, 0.9659258, -0.25881904, 0, 0.25881904, 0.9659258, 0, -2.7236805, -1.2758942)
+transform = Transform3D(1, 0, 0, 0, 0.9659258, -0.25881904, 0, 0.25881904, 0.9659258, 0, -0.92740774, -0.8106022)
 shape = SubResource("BoxShape3D_s6qt6")
 
 [node name="Bottom" type="Marker3D" parent="LadderStarboard" unique_id=1733400103]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -8.72, -3.25)
 
 [node name="Top" type="Marker3D" parent="LadderStarboard" unique_id=1733400104]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.14, -0.61)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.3108478, -0.6697974)
 
 [node name="StairsModel" type="Node3D" parent="LadderStarboard" unique_id=421168406]
 
 [node name="ladder" parent="LadderStarboard/StairsModel" unique_id=1999136750 instance=ExtResource("9_4dvsp")]
-transform = Transform3D(-10, 0, 1.509958e-06, 0, 10, 0, -1.509958e-06, 0, -10, 0, -4.359698, 1.3670034)
+transform = Transform3D(-5, 0, 7.54979e-07, 0, 5, 0, -7.54979e-07, 0, -5, 0, -1.845685, 0.32599735)
+
+[node name="rails" parent="LadderStarboard/StairsModel/ladder" index="0" unique_id=1053231766]
+transform = Transform3D(-1, -2.08266e-07, -1.5648307e-07, 2.0826599e-07, -0.27832758, -0.96048623, 1.5648307e-07, -0.96048623, 0.27832758, 0, 0.098160684, 0.2124641)
 
 [node name="LadderStarboardDeck" type="Marker3D" parent="." unique_id=187559225]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.8624725, -0.49571723, -5.9231167)
