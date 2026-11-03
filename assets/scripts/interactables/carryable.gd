@@ -44,7 +44,7 @@ var carried := false
 var ignore_player := false
 var _picked_once := false
 var _floating := false # neutral-buoyancy item currently held by the water
-var _highlight_material: StandardMaterial3D
+var _highlight_materials: Array[StandardMaterial3D] = []
 var _stowed_on: RigidBody3D = null # the ship it is stowed on, if any
 var _loose_parent: Node = null # where it lived before being stowed
 var _half_height := 0.25 # from the origin down to the item's underside
@@ -57,14 +57,18 @@ func _ready() -> void:
 			var box := shape.shape.get_debug_mesh().get_aabb()
 			_half_height = maxf(-(shape.transform * box).position.y, 0.05)
 			break
-	# Give the mesh its own material copy so highlighting never leaks to others.
-	# Imported models (eg. the printout) have no "Mesh" node: use the first mesh inside.
-	var mesh_instance: MeshInstance3D = get_node_or_null(^'Mesh')
-	if not mesh_instance:
-		mesh_instance = find_children("*", "MeshInstance3D", true, false).pop_front()
-	if mesh_instance and mesh_instance.get_active_material(0) is StandardMaterial3D:
-		_highlight_material = mesh_instance.get_active_material(0).duplicate()
-		mesh_instance.set_surface_override_material(0, _highlight_material)
+	# Every surface you can see gets its own material copy to glow, so highlighting never leaks
+	# to other items. Hidden meshes are skipped: the fuel cell keeps its old placeholder
+	# capsule ("Mesh", hidden) next to the model with its glass and metal parts.
+	for mesh_instance: MeshInstance3D in find_children("*", "MeshInstance3D", true, false):
+		if mesh_instance.mesh == null or _hidden_within(mesh_instance):
+			continue
+		for s in mesh_instance.mesh.get_surface_count():
+			var mat := mesh_instance.get_active_material(s) as StandardMaterial3D
+			if mat:
+				mat = mat.duplicate() as StandardMaterial3D
+				mesh_instance.set_surface_override_material(s, mat)
+				_highlight_materials.append(mat)
 
 func _physics_process(_delta: float) -> void:
 	if carried:
@@ -84,13 +88,21 @@ func _physics_process(_delta: float) -> void:
 			linear_velocity = Vector3.ZERO
 			angular_velocity = Vector3.ZERO
 
+## Hidden in the item itself (it or a node between it and us), whatever the item sits in.
+func _hidden_within(node: Node3D) -> bool:
+	while node and node != self:
+		if not node.visible:
+			return true
+		node = node.get_parent() as Node3D
+	return false
+
 ## Crosshair hover feedback (called by the player's hover system).
 func set_highlighted(on: bool) -> void:
-	if _highlight_material:
-		_highlight_material.emission_enabled = on
-		var settings := GameSettings.current() # "Item glow" in game_settings.tres
-		_highlight_material.emission = settings.item_glow_color
-		_highlight_material.emission_energy_multiplier = settings.item_glow_energy
+	var settings := GameSettings.current() # "Item glow" in game_settings.tres
+	for mat in _highlight_materials:
+		mat.emission_enabled = on
+		mat.emission = settings.item_glow_color
+		mat.emission_energy_multiplier = settings.item_glow_energy
 
 ## Landed on a ship's deck (just above it, no longer falling onto it): become
 ## part of the ship. Only the vertical speed is judged: the deck pieces are
