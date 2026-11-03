@@ -389,7 +389,9 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 		_model.global_transform = Transform3D(lean, p.global_position)
 		var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
 		var eye_height: float = player.camera.global_position.y - p.global_position.y # the pivot is at rest here
-		var offset: Vector3 = up * eye_height - Basis(Vector3.UP, view_yaw) * Vector3(0.0, 0.0, -eye_back) - (eyes - p.global_position)
+		# eye_back measured along where the body faces, not the view: by the view, the whole body
+		# swung round the camera as we looked about, taking the hands off the rails
+		var offset: Vector3 = up * eye_height - fwd * eye_back - (eyes - p.global_position)
 		_ladder = l
 		var inv: Basis = l.global_basis.inverse()
 		_ladder_lean = inv * lean # in the ladder's space, so it moves with her
@@ -401,7 +403,9 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 	# stepped off, the lean eases out, but the body comes along with us from where we are
 	var b: Basis = _ladder.global_basis
 	var on_it := Transform3D(b * _ladder_lean, p.global_position + b * _ladder_offset)
-	_model.global_transform = upright.interpolate_with(on_it, smoothstep(0.0, 1.0, _ladder_blend))
+	var k := smoothstep(0.0, 1.0, _ladder_blend)
+	_model.global_transform = upright.interpolate_with(on_it, k)
+	_rig.twist *= 1.0 - k # the back stays square to the ladder as we look round: it turned the shoulders, and the hands with them, off the rails
 	var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
 	_pivot.global_position = eyes + Basis(Vector3.UP, view_yaw) * Vector3(0.0, 0.0, -eye_back)
 
