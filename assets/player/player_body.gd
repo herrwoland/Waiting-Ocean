@@ -47,6 +47,9 @@ const WATER_MAT := preload('res://assets/water/mat_water.tres') # its underwater
 ## hands' reach, so they keep pace with the rungs. Climb_Loop's hands go 0.36 m at the rig's own size,
 ## and the game draws the body 1.24 times that.
 @export var climb_cycle := 0.45
+## Seconds the body takes to go over to the ladder's lean and the ship's motion as it grabs on (and
+## back to upright, hung from the camera, as it steps off).
+@export var ladder_blend_time := 0.25
 ## Seconds the body takes to lie along the view when it starts swimming under the water, and to
 ## stand back up when it stops (or comes up to the surface).
 @export var swim_lean_time := 0.4
@@ -133,6 +136,10 @@ const SWAY_SMOOTH := 0.12 # s: how long the deck's motion is smoothed over befor
 var _arm_reach := 0.0 # m from the shoulder a hand can hold something (see _hands())
 var _pivot: Node3D # what carries the camera (the camera shake's pivot, else the camera)
 var _pivot_rest := Vector3.ZERO
+var _ladder_blend := 0.0 # 0 = upright under the camera, 1 = on the ladder with the ship (see _on_ladder())
+var _ladder: Node3D # the ladder we are on, or last were while easing off it
+var _ladder_lean := Basis() # the body's turn and lean on it, in its space (so it moves with the ship)
+var _ladder_offset := Vector3.ZERO # ...and its root from where we are, in its space
 var _carried: Node3D # the item in our hands, its grips per hand (left, right) and its size
 var _grips: Array[Node3D] = [null, null]
 var _carried_box := AABB() # in the item's own space
@@ -354,8 +361,49 @@ func _process(delta: float) -> void:
 		var anchor := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _anchor_in_head
 		eyes = eyes.lerp(anchor, smoothstep(0.0, 1.0, _lying))
 	_model.global_position += camera.global_position + back - eyes
+	_on_ladder(yaw, delta)
 	_carry(delta)
 	_hand_splashes(delta)
+
+## On a ladder the body is the ship's, not the camera's: leaning along the climb and riding every
+## roll and pitch of her, so the hands and feet stay on the rails; the camera goes where its eyes
+## are (only there: where we look, and the level horizon, stay ours). It hangs by its eyes as it
+## does upright -- as high above the climb as the camera is above the feet, only along the ladder
+## -- so wherever a clip carries the body about its root, the view stays put. Eased in over
+## ladder_blend_time as we grab it, and out as we step off, from the upright body hung from the
+## camera, so the view never jumps.
+func _on_ladder(view_yaw: float, delta: float) -> void:
+	var p = player
+	var climbing: bool = p.state == p.State.CLIMB and is_instance_valid(p.ladder)
+	_ladder_blend = move_toward(_ladder_blend, 1.0 if climbing else 0.0, delta / maxf(ladder_blend_time, 0.01))
+	var upright := _model.global_transform # hung from the camera (see _process())
+	if climbing:
+		var l = p.ladder
+		var up: Vector3 = (l.point(1.0) - l.point(0.0)).normalized() # along the climb, with her
+		var f: Vector3 = l.top_exit.global_position - l.top.global_position # over the top: toward the ladder
+		var fwd := (f - up * f.dot(up)).normalized()
+		if fwd.length_squared() < 0.5:
+			fwd = (-l.global_basis.z - up * (-l.global_basis.z).dot(up)).normalized()
+		var right := fwd.cross(up).normalized()
+		var lean := Basis(-right, up, fwd).scaled(_model.scale)
+		_model.global_transform = Transform3D(lean, p.global_position)
+		var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
+		var eye_height: float = player.camera.global_position.y - p.global_position.y # the pivot is at rest here
+		var offset: Vector3 = up * eye_height - Basis(Vector3.UP, view_yaw) * Vector3(0.0, 0.0, -eye_back) - (eyes - p.global_position)
+		_ladder = l
+		var inv: Basis = l.global_basis.inverse()
+		_ladder_lean = inv * lean # in the ladder's space, so it moves with her
+		_ladder_offset = inv * offset # from where we are to the body's root
+	if _ladder_blend <= 0.0 or not is_instance_valid(_ladder):
+		_ladder = null
+		_model.global_transform = upright
+		return
+	# stepped off, the lean eases out, but the body comes along with us from where we are
+	var b: Basis = _ladder.global_basis
+	var on_it := Transform3D(b * _ladder_lean, p.global_position + b * _ladder_offset)
+	_model.global_transform = upright.interpolate_with(on_it, smoothstep(0.0, 1.0, _ladder_blend))
+	var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
+	_pivot.global_position = eyes + Basis(Vector3.UP, view_yaw) * Vector3(0.0, 0.0, -eye_back)
 
 ## Swimming under the water (the eyes under, not afloat), the body lies along the view like a diver,
 ## head first, its strokes out in front of the eyes. The swim clip already lies flat, head forward,
