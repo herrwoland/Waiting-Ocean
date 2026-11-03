@@ -50,6 +50,10 @@ const WATER_MAT := preload('res://assets/water/mat_water.tres') # its underwater
 ## Seconds the body takes to go over to the ladder's lean and the ship's motion as it grabs on (and
 ## back to upright, hung from the camera, as it steps off).
 @export var ladder_blend_time := 0.25
+## Looking round on a ladder, how far (m) the head leans out to that side by the look limit (the
+## Player's ladder_look_limit), and from how far round (degrees) it starts to.
+@export var ladder_lean_out := 0.3
+@export_range(0.0, 180.0, 1.0) var ladder_lean_from := 40.0
 ## Seconds the body takes to lie along the view when it starts swimming under the water, and to
 ## stand back up when it stops (or comes up to the surface).
 @export var swim_lean_time := 0.4
@@ -407,7 +411,13 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 	_model.global_transform = upright.interpolate_with(on_it, k)
 	_rig.twist *= 1.0 - k # the back stays square to the ladder as we look round: it turned the shoulders, and the hands with them, off the rails
 	var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
-	_pivot.global_position = eyes + Basis(Vector3.UP, view_yaw) * Vector3(0.0, 0.0, -eye_back)
+	# looking round, the head leans out to that side, so what's behind us is seen past the
+	# shoulder rather than from inside the neck
+	var body := on_it.basis.orthonormalized() # faces +Z, its left is +X
+	var off := angle_difference(atan2(-body.z.x, -body.z.z), view_yaw) # > 0: turned to the left
+	var lean_k := smoothstep(deg_to_rad(ladder_lean_from), deg_to_rad(player.ladder_look_limit), absf(off))
+	var lean_out := body.x * signf(off) * ladder_lean_out * lean_k * k
+	_pivot.global_position = eyes + Basis(Vector3.UP, view_yaw) * Vector3(0.0, 0.0, -eye_back) + lean_out
 
 ## Swimming under the water (the eyes under, not afloat), the body lies along the view like a diver,
 ## head first, its strokes out in front of the eyes. The swim clip already lies flat, head forward,

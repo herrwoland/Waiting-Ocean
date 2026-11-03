@@ -38,6 +38,10 @@ enum State { WALK, SWIM, PILOT, OPERATE, CLIMB }
 @export var mouse_sensitivity: float = 0.0025
 @export var turn_speed: float = 2.0 # radians/sec, for keyboard look (Q/R or arrow keys), eg. over a remote desktop
 @export var look_speed: float = 1.5 # radians/sec, for keyboard look up/down (arrow keys)
+## On a ladder, how far (degrees) the view can turn from it either way, and from where the turn
+## starts to get heavier on the way there (see _turn_head()).
+@export_range(0.0, 180.0, 1.0) var ladder_look_limit := 110.0
+@export_range(0.0, 180.0, 1.0) var ladder_look_soft := 70.0
 @export var swim_enter_depth: float = 0.6 # how deep water must be over the feet before we start swimming
 @export var swim_exit_depth: float = 0.45 # while grounded, water shallower than this switches back to walking (wading)
 @export var sink_speed: float = 1.0 # constant downward speed while swimming unless swim_up is held
@@ -256,7 +260,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if state == State.PILOT and Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 		return
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		head.rotation.y -= event.relative.x * mouse_sensitivity
+		_turn_head(-event.relative.x * mouse_sensitivity)
 		camera.rotation.x -= event.relative.y * mouse_sensitivity
 		camera.rotation.x = clampf(camera.rotation.x, -PI / 2.0, PI / 2.0)
 	elif event.is_action_pressed(&'interact') and not captured:
@@ -313,9 +317,25 @@ func _process_turn_keys(delta: float) -> void:
 			station.aim(turn * turn_speed * delta, pitch * look_speed * delta)
 		return
 	if turn != 0.0:
-		head.rotation.y += turn * turn_speed * delta
+		_turn_head(turn * turn_speed * delta)
 	if pitch != 0.0:
 		camera.rotation.x = clampf(camera.rotation.x + pitch * look_speed * delta, -PI / 2.0, PI / 2.0)
+
+## Turns the view (radians, > 0 to the left). Holding on to a ladder we can't turn all the way
+## round: past ladder_look_soft from the ladder the turn gets heavier, and it stops at
+## ladder_look_limit (the body stays square to the rungs, and looking farther showed the inside of
+## its neck). Turning back toward the ladder is always free.
+func _turn_head(amount: float) -> void:
+	if state == State.CLIMB and is_instance_valid(ladder):
+		var off := _ladder_look_off()
+		if signf(amount) == signf(off): # farther away from it
+			amount *= 1.0 - smoothstep(deg_to_rad(ladder_look_soft), deg_to_rad(ladder_look_limit), absf(off))
+	head.rotation.y += amount
+
+## How far (radians, > 0 to the left) the view is turned from the ladder we are on.
+func _ladder_look_off() -> float:
+	var f: Vector3 = ladder.facing()
+	return angle_difference(atan2(-f.x, -f.z), head.global_rotation.y)
 
 ## Called by a Ladder when we come into (or leave) its reach.
 func ladder_in_reach(target: Node, in_reach: bool) -> void:
@@ -375,6 +395,10 @@ func _process_ladder(delta: float) -> void:
 		_leave_ladder(false)
 		return
 	velocity = Vector3.ZERO
+	# past the look limit (grabbed it looking away, or the ship swung round under us): eased back
+	var over := absf(_ladder_look_off()) - deg_to_rad(ladder_look_limit)
+	if over > 0.0:
+		head.rotation.y -= signf(_ladder_look_off()) * over * (1.0 - exp(-8.0 * delta))
 	if _climb_exit >= 0.0:
 		_climb_exit = minf(_climb_exit + delta / maxf(ladder.exit_time, 0.01), 1.0)
 		var k := smoothstep(0.0, 1.0, _climb_exit)
