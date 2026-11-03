@@ -18,6 +18,18 @@ var pole_l := Vector3.ZERO
 var pole_r := Vector3.ZERO
 ## The upper body's lean (radians): x forward (+) or back, y to its right (+) or left.
 var lean := Vector2.ZERO
+## Hands and feet moved from where the clip put them (skeleton space; the body faces +Z, its left
+## is +X): end bone ('hand_l', 'foot_r', ...) -> offset. The arm or leg bends to follow (two-bone
+## IK, the elbow or knee bending the way the clip bends it) and the hand or foot keeps the clip's
+## turn. Fits a clip to what it holds or stands on (the ladder's rails and rungs, see PlayerBody).
+var nudge := {}
+## How far (0..1) the fingers are opened from the clip's pose toward the open hand (the rest pose),
+## where no grip closes them.
+var fingers_open := 0.0
+const LIMBS := {&'hand_l': [&'upperarm_l', &'lowerarm_l'], &'hand_r': [&'upperarm_r', &'lowerarm_r'],
+		&'foot_l': [&'thigh_l', &'calf_l'], &'foot_r': [&'thigh_r', &'calf_r']}
+const FINGERS := ['index', 'middle', 'ring', 'pinky', 'thumb']
+var _finger_bones: Array[int] = []
 ## How closed each hand is round a grip, from an open hand (just above 0) to the holding pose (1);
 ## 0 leaves the fingers to the clip. The holding fingers' turns (bone -> local rotation) are taken
 ## from a clip that grips (see PlayerBody); the open hand is the rig's rest pose.
@@ -125,6 +137,10 @@ func _process_modification() -> void:
 			var g := sk.get_bone_global_pose(b)
 			g.basis = Basis(Vector3.UP, twist * TWIST[bone_name]) * g.basis
 			sk.set_bone_global_pose(b, g)
+	for end: StringName in nudge:
+		_nudge(sk, end, nudge[end])
+	if fingers_open > 0.001 and grip_l <= 0.001 and grip_r <= 0.001:
+		_open_fingers(sk)
 	if hand_l == Vector3.INF:
 		_lock.erase('_l')
 	if hand_r == Vector3.INF:
@@ -181,6 +197,40 @@ func _process_modification() -> void:
 		_turn_thumb(sk, '_l')
 	if grip_r > 0.001:
 		_turn_thumb(sk, '_r')
+
+## Moves a hand or foot `by` from where the clip put it (see `nudge`).
+func _nudge(sk: Skeleton3D, end: StringName, by: Vector3) -> void:
+	if by.length() < 0.0001 or not LIMBS.has(end):
+		return
+	var e := sk.find_bone(end)
+	var mid := sk.find_bone(LIMBS[end][1])
+	var root := sk.find_bone(LIMBS[end][0])
+	if e < 0 or mid < 0 or root < 0:
+		return
+	var kept := sk.get_bone_global_pose(e).basis # the hand's / foot's turn, kept
+	var s := sk.get_bone_global_pose(root).origin
+	var m := sk.get_bone_global_pose(mid).origin
+	var t := sk.get_bone_global_pose(e).origin
+	# the pole: out from the limb's line through the elbow / knee, so it keeps bending the clip's way
+	var line := (t - s).normalized()
+	var out := (m - s) - line * (m - s).dot(line)
+	var pole := m + (out.normalized() if out.length() > 0.001 else Vector3.BACK) * 0.5
+	_reach(sk, LIMBS[end][0], LIMBS[end][1], end, t + by, pole)
+	var g := sk.get_bone_global_pose(e)
+	g.basis = kept
+	sk.set_bone_global_pose(e, g)
+
+## The fingers opened `fingers_open` of the way toward the rest pose (the open hand).
+func _open_fingers(sk: Skeleton3D) -> void:
+	if _finger_bones.is_empty():
+		for b in sk.get_bone_count():
+			var n := sk.get_bone_name(b)
+			for f in FINGERS:
+				if n.begins_with(f) and not n.contains('leaf'):
+					_finger_bones.append(b)
+	for b in _finger_bones:
+		var open := sk.get_bone_rest(b).basis.get_rotation_quaternion()
+		sk.set_bone_pose_rotation(b, sk.get_bone_pose_rotation(b).slerp(open, fingers_open))
 
 ## Holding on: the body can't sway farther from a handle than its arm reaches, the grip pulls it
 ## along. The back bends about the waist to bring the shoulders `miss` nearer the handle.

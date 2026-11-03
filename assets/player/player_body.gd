@@ -65,6 +65,19 @@ const WATER_MAT := preload('res://assets/water/mat_water.tres') # its underwater
 @export_range(-0.5, 0.5, 0.005, 'suffix:m') var ladder_shift_in := 0.0
 ## ...and turned about the ladder's length (degrees, > 0 to the left).
 @export_range(-45.0, 45.0, 0.5, 'suffix:°') var ladder_turn := 0.0
+## The hands moved from where the climb clip puts them (m; the arms bend to follow, the hands keep
+## their turn): each out to its side (< 0 in toward the other)...
+@export_range(-0.3, 0.3, 0.005, 'suffix:m') var ladder_hands_wider := 0.0
+## ...toward the ladder (< 0 back from it)...
+@export_range(-0.3, 0.3, 0.005, 'suffix:m') var ladder_hands_in := 0.0
+## ...and up (< 0 down).
+@export_range(-0.3, 0.3, 0.005, 'suffix:m') var ladder_hands_up := 0.0
+## The feet the same way (the legs bend to follow, the feet keep their turn).
+@export_range(-0.3, 0.3, 0.005, 'suffix:m') var ladder_feet_wider := 0.0
+@export_range(-0.3, 0.3, 0.005, 'suffix:m') var ladder_feet_in := 0.0
+@export_range(-0.3, 0.3, 0.005, 'suffix:m') var ladder_feet_up := 0.0
+## How far the fingers open from the clip's grip toward an open hand (0 = as the clip has them).
+@export_range(0.0, 1.0, 0.01) var ladder_fingers_open := 0.0
 @export_group('')
 ## Seconds the body takes to lie along the view when it starts swimming under the water, and to
 ## stand back up when it stops (or comes up to the surface).
@@ -418,6 +431,8 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 	if _ladder_blend <= 0.0 or not is_instance_valid(_ladder):
 		_ladder = null
 		_model.global_transform = upright
+		_rig.nudge = {}
+		_rig.fingers_open = 0.0
 		return
 	# stepped off, the lean eases out, but the body comes along with us from where we are
 	var b: Basis = _ladder.global_basis
@@ -425,6 +440,14 @@ func _on_ladder(view_yaw: float, delta: float) -> void:
 	var k := smoothstep(0.0, 1.0, _ladder_blend)
 	_model.global_transform = upright.interpolate_with(on_it, k)
 	_rig.twist *= 1.0 - k # the back stays square to the ladder as we look round: it turned the shoulders, and the hands with them, off the rails
+	# the hands and feet fitted to the rails and rungs (the sliders, m, into the skeleton's space:
+	# it faces +Z, its left is +X, and it is scaled with the model)
+	var to_sk := k / maxf(_skel.global_basis.get_scale().x, 0.001)
+	var hands := Vector3(ladder_hands_wider, ladder_hands_up, ladder_hands_in) * to_sk
+	var feet := Vector3(ladder_feet_wider, ladder_feet_up, ladder_feet_in) * to_sk
+	_rig.nudge = {&'hand_l': hands, &'hand_r': hands * Vector3(-1, 1, 1),
+			&'foot_l': feet, &'foot_r': feet * Vector3(-1, 1, 1)}
+	_rig.fingers_open = ladder_fingers_open * k
 	var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
 	# looking round, the head leans out to that side, so what's behind us is seen past the
 	# shoulder rather than from inside the neck
