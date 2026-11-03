@@ -205,6 +205,62 @@ rise_speed = 1.5
 wobble = 0.6
 spawn_radius = 0.6
 
+[node name="Camera3D2" type="Camera3D" parent="Head" unique_id=680343304]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.4675876, 1.769989)
+current = true
+far = 12000.0
+
+[node name="InteractRay" type="RayCast3D" parent="Head/Camera3D2" unique_id=998079384]
+target_position = Vector3(0, 0, -2.5)
+collision_mask = 4
+collide_with_areas = true
+debug_shape_custom_color = Color(0.8835159, 0.06592726, 0, 1)
+
+[node name="InspectSocket" type="Marker3D" parent="Head/Camera3D2" unique_id=1938086363]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.55)
+
+[node name="CarrySocket" type="Marker3D" parent="Head/Camera3D2" unique_id=628516116]
+transform = Transform3D(1, 0, 0, 0, 0.16443092, -0.9863925, 0, 0.9863925, 0.16443092, 0.13788526, -0.33844852, -0.82057154)
+
+[node name="SwimCarrySocket" type="Marker3D" parent="Head/Camera3D2" unique_id=627705513]
+transform = Transform3D(1, 0, 0, 0, 0.16443092, -0.9863925, 0, 0.9863925, 0.16443092, 0.24, -0.86097884, -0.6399967)
+
+[node name="BreathBubbles" type="GPUParticles3D" parent="Head/Camera3D2" unique_id=1265298105]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.18, -0.3)
+layers = 524288
+cast_shadow = 0
+emitting = false
+amount = 256
+amount_ratio = 0.0
+lifetime = 8.0
+randomness = 0.3
+visibility_aabb = AABB(-15, -5, -15, 30, 60, 30)
+process_material = SubResource("ShaderMaterial_vlpqo")
+draw_pass_1 = SubResource("QuadMesh_g7aau")
+script = ExtResource("30_bubbles")
+trail_full_speed = 0.0
+spawn_radius = 0.05
+
+[node name="PlungeBubbles" type="GPUParticles3D" parent="Head/Camera3D2" unique_id=1696145708]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.45)
+layers = 524288
+cast_shadow = 0
+emitting = false
+amount = 500
+amount_ratio = 0.0
+lifetime = 3.0
+randomness = 0.6
+visibility_aabb = AABB(-15, -5, -15, 30, 60, 30)
+process_material = SubResource("ShaderMaterial_plunge")
+draw_pass_1 = ExtResource("9_vlpqo")
+script = ExtResource("30_bubbles")
+trail_full_speed = 0.0
+size_min = 0.006
+size_max = 0.03
+rise_speed = 1.5
+wobble = 0.6
+spawn_radius = 0.6
+
 [node name="InspectOverlay" type="CanvasLayer" parent="." unique_id=1850755420]
 visible = false
 
@@ -310,6 +366,15 @@ bus = &"SFX"
 [node name="Body" type="Node3D" parent="." unique_id=1293847561 node_paths=PackedStringArray("model")]
 script = ExtResource("31_body")
 model = NodePath("Model")
+climb_cycle = 2.0
+ladder_shift_side = -0.005
+ladder_shift_in = -0.13
+ladder_turn = -1.0
+ladder_hands_wider = 0.125
+ladder_hands_in = -0.27999999999999997
+ladder_hands_up = -0.12999999999999998
+ladder_feet_in = 0.3
+ladder_fingers_open = 0.03
 carry_steady = 1.0
 
 [node name="Model" parent="Body" unique_id=1293847562 instance=ExtResource("32_bodymodel")]
