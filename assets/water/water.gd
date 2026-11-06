@@ -37,6 +37,32 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 		_setup_wave_generator()
 		_update_scales_uniform()
 
+## Light coming through the thin top of a tall wave: looking towards the sun (or a lamp), the
+## crests glow a paler green-blue than the deep water. Heights are measured against the waves
+## actually running, so it works the same in a calm and in a storm.
+@export_group('Translucency')
+## Colour of the light through a crest. Paler and greener than the sea itself.
+@export_color_no_alpha var translucency_color := Color(0.16, 0.55, 0.46) :
+	set(value): translucency_color = value; WATER_MAT.set_shader_parameter(&'sss_color', value)
+## Overall brightness of the glow (0 = off).
+@export_range(0.0, 8.0, 0.01) var translucency_strength := 1.5 :
+	set(value): translucency_strength = value; WATER_MAT.set_shader_parameter(&'sss_strength', value)
+## How tightly it gathers round looking straight into the light. Higher = only when facing the
+## sun; lower = it shows from further round to the side.
+@export_range(0.5, 16.0, 0.1) var translucency_sharpness := 4.0 :
+	set(value): translucency_sharpness = value; WATER_MAT.set_shader_parameter(&'sss_power', value)
+## How much the wave's own slope bends the light through it. Higher lights the thin edge of
+## a crest more than the face turned to you.
+@export_range(0.0, 1.0, 0.01) var translucency_distortion := 0.3 :
+	set(value): translucency_distortion = value; WATER_MAT.set_shader_parameter(&'sss_distortion', value)
+## Where on the wave the glow starts, as a share of a typical crest's height: 0 = from sea level
+## up, 0.5 = only the top half, negative = into the troughs.
+@export_range(-1.0, 0.9, 0.01) var translucency_height_bias := 0.0 :
+	set(value): translucency_height_bias = value; WATER_MAT.set_shader_parameter(&'sss_height_bias', value)
+## A little glow in high crests from any side, not only looking into the light.
+@export_range(0.0, 2.0, 0.01) var translucency_crest_glow := 0.3 :
+	set(value): translucency_crest_glow = value; WATER_MAT.set_shader_parameter(&'sss_crest_glow', value)
+
 @export_group('Performance Parameters')
 @export_enum('256x256:256', '512x512:512', '1024x1024:1024') var map_size := 1024 : # 128 breaks the ocean.
 	set(value):
@@ -305,6 +331,8 @@ var _blocker_c := PackedVector4Array()
 var _contact_nodes := [] # See _contact_body.
 var _contact_bodies := PackedVector4Array()
 var _contact_refresh := 0.0
+var _cascade_height_var := PackedFloat32Array() # See _measure_wave_amplitude.
+var _wave_amplitude := -1.0
 
 # ------ Public Interface ----- #
 ## `masked = false` ignores wave blockers (eg. buoyancy keeps rocking the ship
@@ -415,6 +443,9 @@ func _ready() -> void:
 
 	RenderingServer.global_shader_parameter_set(&'water_color', water_color)
 	RenderingServer.global_shader_parameter_set(&'foam_color', foam_color)
+	for p in [&'translucency_color', &'translucency_strength', &'translucency_sharpness',
+			&'translucency_distortion', &'translucency_height_bias', &'translucency_crest_glow']:
+		set(p, get(p)) # Push the dials to the material.
 
 	var n := _cpu_cascade_count()
 	_imgs.resize(n)
@@ -481,6 +512,28 @@ func _on_displacement_map_data(data: PackedByteArray, cascade: int) -> void:
 	_imgs[cascade] = spare
 	_img_prev_times[cascade] = _img_times[cascade]
 	_img_times[cascade] = _requested_times[cascade]
+	_measure_wave_amplitude(cascade)
+
+## How high a typical crest stands, for the translucency (the shader's sss_wave_amplitude):
+## twice the spread of the heights, from a sparse grid over each CPU cascade's map. The small
+## GPU-only cascades barely add height. Eased, so a weather change glides rather than jumps.
+func _measure_wave_amplitude(cascade: int) -> void:
+	var img := _imgs[cascade]
+	if img == null or cascade >= map_scales.size(): return
+	const GRID := 8
+	var w := img.get_width()
+	var sum_sq := 0.0
+	for y in GRID:
+		for x in GRID:
+			var h := img.get_pixel((x * w) / GRID, (y * w) / GRID).g
+			sum_sq += h * h
+	_cascade_height_var.resize(_imgs.size())
+	_cascade_height_var[cascade] = sum_sq / (GRID * GRID) * pow(map_scales[cascade].z, 2.0)
+	var total := 0.0
+	for v in _cascade_height_var: total += v
+	var target := 2.0 * sqrt(total)
+	_wave_amplitude = target if _wave_amplitude < 0.0 else lerpf(_wave_amplitude, target, 0.2)
+	WATER_MAT.set_shader_parameter(&'sss_wave_amplitude', maxf(_wave_amplitude, 0.05))
 
 func _cpu_cascade_count() -> int:
 	return clampi(cpu_cascades, 1, maxi(map_scales.size(), 1))

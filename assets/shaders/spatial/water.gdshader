@@ -88,6 +88,19 @@ uniform float normal_strength : hint_range(0.0, 1.0) = 1.0; // Global normal str
 /** Brightness of the glints lights leave on the waves: the sun or moon path, lamps on the
  * water. Each glint already follows its light's colour and energy; this scales them all. */
 uniform float light_reflection : hint_range(0.0, 4.0, 0.01) = 1.0;
+
+// Light coming through the thin top of a wave (set from the Water node's Translucency dials).
+group_uniforms translucency;
+uniform vec3 sss_color : source_color = vec3(0.16, 0.55, 0.46);
+uniform float sss_strength = 1.5;
+uniform float sss_power = 4.0;
+uniform float sss_distortion = 0.3;
+uniform float sss_height_bias = 0.0;
+uniform float sss_crest_glow = 0.3;
+/** Height (m) of a typical crest above sea level, measured from the waves by water.gd. */
+uniform float sss_wave_amplitude = 1.0;
+group_uniforms;
+
 group_uniforms wave_foam;
 /** Texture laid over the wave foam: bright = foam, dark = gaps. White (or none) leaves the foam
  * as the simulation makes it. */
@@ -511,7 +524,7 @@ void vertex() {
 		// Domes smooth out the waves riding on them; churned wake water is flatter too.
 		float wave_scale = blocker_mask * (1.0 - shape.w) * (1.0 - wake_flatten * wake_churn);
 		VERTEX += displacement * distance_factor * wave_scale;
-		wave_height = displacement.y * wave_scale;
+		wave_height = displacement.y * distance_factor * wave_scale;
 	}
 	else
 	{
@@ -853,9 +866,21 @@ void light() {
 
 		// --- DIFFUSE ---
 		const vec3 sss_modifier = vec3(0.9,1.15,0.85); // Subsurface scattering produces a 'greener' color.
-		float sss_height = 1.0*max(0.0, wave_height + 2.5) * pow(max(dot(LIGHT, -VIEW), 0.0), 4.0) * pow(0.5 - 0.5 * dot(LIGHT, NORMAL), 3.0);
 		float sss_near = 0.5*pow(dot_nv, 2.0);
 		float lambertian = 0.5*dot_nl;
-		DIFFUSE_LIGHT += mix((sss_height + sss_near) * sss_modifier / (1.0 + light_mask) + lambertian, foam_color.rgb, foam_factor) * (1.0 - fresnel) * ATTENUATION * LIGHT_COLOR;
+		DIFFUSE_LIGHT += mix(sss_near * sss_modifier / (1.0 + light_mask) + lambertian, foam_color.rgb, foam_factor) * (1.0 - fresnel) * ATTENUATION * LIGHT_COLOR;
+
+		// --- TRANSLUCENCY ---
+		// The top of a tall wave is thin enough for light to come through it: looking towards the
+		// light, the crest glows a paler green-blue than the deep water. 0 at sea level, 1 at a
+		// typical crest. Kept out of DIFFUSE_LIGHT, which the deep albedo would tint back to blue.
+		float crest = clamp((wave_height / max(sss_wave_amplitude, 0.05) - sss_height_bias)
+				/ max(1.0 - sss_height_bias, 0.05), 0.0, 1.5);
+		crest *= crest; // Gathers it into the tops, where the water is thinnest.
+		// Light passing through towards the eye, bent a little by the wave's slope.
+		float back = pow(clamp(dot(-VIEW, normalize(LIGHT + NORMAL * sss_distortion)), 0.0, 1.0), sss_power);
+		float thin = 0.5 - 0.5 * dot(LIGHT, NORMAL); // A face turned from the light is lit from behind.
+		float sss = crest * (back * thin * thin + sss_crest_glow) * sss_strength;
+		SPECULAR_LIGHT += sss_color * sss * (1.0 - fresnel) * (1.0 - foam_factor) * ATTENUATION * LIGHT_COLOR / PI;
 	}
 }
