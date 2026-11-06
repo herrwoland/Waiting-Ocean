@@ -46,9 +46,9 @@ water = {
 &"translucency_color": Color(0.09257863, 0.24071687, 0.23149171, 1),
 &"translucency_crest_glow": 0.3,
 &"translucency_distortion": 0.3,
-&"translucency_height_bias": -0.44999999999999996,
+&"translucency_height_bias": -0.45,
 &"translucency_sharpness": 4.0,
-&"translucency_strength": 1.5,
+&"translucency_strength": 2.08,
 &"water_color": Color(0.03137255, 0.10980392, 0.2, 1)
 }
 water_material = {
@@ -197,7 +197,7 @@ sun = {
 &"light_energy": 0.3,
 &"light_indirect_energy": 0.5,
 &"light_volumetric_fog_energy": 0.3,
-&"quaternion": Quaternion(-0.09130372, 0.16455479, 0.011019154, 0.9820713),
+&"quaternion": Quaternion(-0.09130371, 0.1645548, 0.0110191535, 0.9820713),
 &"shadow_opacity": 0.8
 }
 rain = {

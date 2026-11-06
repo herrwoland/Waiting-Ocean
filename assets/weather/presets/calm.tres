@@ -43,6 +43,12 @@ waves = Array[Dictionary]([{
 }])
 water = {
 &"foam_color": Color(0.8520676, 0.8132686, 0.7798851, 1),
+&"translucency_color": Color(0.02821297, 0.14961392, 0.12179013, 1),
+&"translucency_crest_glow": 2.0,
+&"translucency_distortion": 0.3,
+&"translucency_height_bias": -0.75,
+&"translucency_sharpness": 4.0,
+&"translucency_strength": 0.52,
 &"water_color": Color(0.03137255, 0.10980392, 0.2, 1)
 }
 water_material = {
@@ -92,6 +98,11 @@ water_material = {
 &"shaft_strength": 0.00999999977648,
 &"shaft_threshold": 1.0,
 &"shaft_tint": Color(1, 1, 1, 1),
+&"shape_foam_breakup": 0.55,
+&"shape_foam_lace": 0.5,
+&"shape_foam_strength": 0.9,
+&"shape_foam_tile_size": 9.0,
+&"shape_foam_tint": 0.5,
 &"submerged_shadow": 0.9430000447925,
 &"submerged_shadow_range": 80.9930037996675,
 &"surface_refraction": 0.35,
@@ -186,15 +197,8 @@ sun = {
 &"light_energy": 1.3,
 &"light_indirect_energy": 1.0,
 &"light_volumetric_fog_energy": 1.0,
-&"quaternion": Quaternion(-0.024760079, 0.97028786, 0.0885706, 0.22379367),
+&"quaternion": Quaternion(-0.024760079, 0.9702879, 0.08857061, 0.22379367),
 &"shadow_opacity": 0.8
-}
-world_fog = {
-&"albedo": Color(0.218936, 0.365236, 0.525464, 1),
-&"density": 8.0,
-&"edge_fade": 1.75,
-&"emission": Color(0, 0, 0, 1),
-&"height_falloff": 0.176
 }
 rain = {
 &"gustiness": 0.4,

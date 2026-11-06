@@ -467,6 +467,7 @@ func _process(delta : float) -> void:
 	_update_dry_volumes()
 	_update_contact_bodies(delta)
 	_update_underwater_effect()
+	_update_see_through()
 	_update_wakes(delta)
 	_update_marine_snow()
 	_update_submerge_lens(delta)
@@ -707,6 +708,12 @@ func _update_underwater_effect() -> void:
 	fx.silhouette_range = silhouette_range
 	fx.fog_down = fog_brightness_down
 	fx.fog_up = fog_brightness_up
+	# The same fog for see-through things that sit in the water (air_bubble.gdshader): the screen
+	# effect fogs them at their own distance, so they add the fog for what lies behind them.
+	if fog is Color and absorb is Vector3:
+		RenderingServer.global_shader_parameter_set(&'underwater_fog', Vector4(fx.fog_color.r, fx.fog_color.g, fx.fog_color.b, depth_darkening))
+		RenderingServer.global_shader_parameter_set(&'underwater_absorb', Vector4(absorb.x, absorb.y, absorb.z, silhouette_range))
+	RenderingServer.global_shader_parameter_set(&'underwater_view', Vector4(global_position.y, -1.0 if lens_dry else lens_sub, fog_brightness_down, fog_brightness_up))
 	if is_instance_valid(_sun) and _sun.visible:
 		fx.sun_direction = _sun.global_basis.z # A DirectionalLight3D shines along -Z.
 		fx.sun_color = _sun.light_color * _sun_base_energy()
@@ -1253,6 +1260,19 @@ func _update_marine_snow() -> void:
 	mat.set_shader_parameter(&'water_level', global_position.y)
 	mat.set_shader_parameter(&'depth_darkening', depth_darkening)
 	apply_glows_to(mat)
+
+## See-through things in the water (air_bubble.gdshader, meshes in the underwater_see_through
+## group) add the glow light behind them that the underwater effect stops at their front.
+func _update_see_through() -> void:
+	var done := {}
+	for mesh in get_tree().get_nodes_in_group(&'underwater_see_through'):
+		if not (mesh is GeometryInstance3D) or not mesh.is_visible_in_tree(): continue
+		var mat : Material = mesh.material_override
+		if not mat and mesh is MeshInstance3D: mat = mesh.get_surface_override_material(0)
+		while mat is ShaderMaterial and not done.has(mat):
+			done[mat] = true
+			apply_glows_to(mat)
+			mat = mat.next_pass
 
 ## Hands this frame's UnderwaterGlow nodes to a speck material (water_speck.gdshader), so marine
 ## snow and bubbles catch their light.

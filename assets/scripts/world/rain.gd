@@ -34,8 +34,12 @@ const WATER_LAYER_BIT := 1 << 19 # Water surface/spray layer (see water.gd).
 @export_range(0.05, 4.0, 0.01) var streak_length := 0.9
 @export_range(0.002, 0.1, 0.001) var streak_width := 0.012
 @export var streak_color := Color(0.62, 0.66, 0.7)
-## Coverage of each streak: lower = finer, fainter rain.
+## How see-through each streak is: lower = finer, fainter rain.
 @export_range(0.0, 1.0, 0.01) var streak_opacity := 0.45
+## Softens the streaks: 0 = crisp lines, 1 = soft smears (like motion blur in the eye).
+@export_range(0.0, 1.0, 0.01) var streak_blur := 0.5
+## Far streaks are drawn at least this many pixels wide and fade instead, so they don't sparkle.
+@export_range(0.5, 4.0, 0.1) var streak_min_pixels := 1.5
 
 @export_group('Splashes')
 @export var splashes_enabled := true
@@ -122,6 +126,7 @@ func _build() -> void:
 	_drops.process_material = pm
 	var streak_mat := ShaderMaterial.new()
 	streak_mat.shader = STREAK_SHADER
+	streak_mat.render_priority = 1 # Blended: draw after the water (priority 0), never behind it.
 	var quad := QuadMesh.new()
 	quad.material = streak_mat
 	_drops.draw_pass_1 = quad
@@ -227,6 +232,8 @@ func _process(delta : float) -> void:
 	var streak_mat := (_drops.draw_pass_1 as QuadMesh).material as ShaderMaterial
 	streak_mat.set_shader_parameter(&'color', streak_color)
 	streak_mat.set_shader_parameter(&'opacity', streak_opacity)
+	streak_mat.set_shader_parameter(&'blur', streak_blur)
+	streak_mat.set_shader_parameter(&'min_pixel_width', streak_min_pixels)
 	var splash_mat := (_splashes.draw_pass_1 as QuadMesh).material as ShaderMaterial
 	splash_mat.set_shader_parameter(&'color', splash_color)
 

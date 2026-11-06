@@ -37,6 +37,21 @@ var _drown_time := -1.0 # Seconds since drowning began (< 0 = not drowning).
 var _drown_start_pitch := 0.0
 var _drown_start_roll := 0.0
 var _flash_phase := 0.0 # red pulses so far (fractional): the rate may change without the pulse jumping
+## Air to breathe under the water (AirBubble pockets): source -> breath regained per second.
+var _air_sources := {}
+
+## Start breathing from `source` (eg. an air pocket the head is in), regaining `rate` seconds of
+## breath per second for as long as it lasts. Call leave_air() when the head leaves it.
+func enter_air(source: Object, rate: float) -> void:
+	_air_sources[source] = rate
+
+func leave_air(source: Object) -> void:
+	_air_sources.erase(source)
+
+## A gulp of air: `amount` seconds of breath at once (<= 0: a full breath).
+func gulp_air(amount: float = 0.0) -> void:
+	if _died: return
+	breath = max_breath if amount <= 0.0 else minf(breath + amount, max_breath)
 
 func _ready() -> void:
 	breath = max_breath
@@ -59,7 +74,13 @@ func _process(delta: float) -> void:
 	if _drown_time >= 0.0:
 		_process_drowning(delta)
 		return
-	if player._ears_underwater and not infinite_breath:
+	var air_rate := 0.0
+	for source in _air_sources.keys():
+		if is_instance_valid(source): air_rate = maxf(air_rate, _air_sources[source])
+		else: _air_sources.erase(source)
+	if air_rate > 0.0:
+		breath = minf(breath + air_rate * delta, max_breath)
+	elif player._ears_underwater and not infinite_breath:
 		breath = maxf(breath - delta, 0.0)
 	else:
 		breath = minf(breath + recover_rate * delta, max_breath)

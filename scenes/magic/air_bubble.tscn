@@ -1,0 +1,61 @@
+[gd_scene format=4 uid="uid://cxbua5vstmwb"]
+
+[ext_resource type="Script" uid="uid://csyjpi4nlac4u" path="res://assets/scripts/world/underwater_glow.gd" id="1_or6d4"]
+[ext_resource type="Shader" uid="uid://c5oepvksfw2w8" path="res://assets/shaders/spatial/air_bubble.gdshader" id="2_skin"]
+[ext_resource type="Shader" uid="uid://cmsn0i3b7wo2" path="res://assets/shaders/spatial/air_bubble_through.gdshader" id="3_through"]
+[ext_resource type="Script" path="res://assets/scripts/world/air_bubble.gd" id="4_bubble"]
+[ext_resource type="Script" uid="uid://f1i0c0keg8l6" path="res://assets/scripts/world/bubble_emitter.gd" id="5_emitter"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_5s6u7"]
+radial_segments = 16
+rings = 8
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_through"]
+render_priority = 1
+shader = ExtResource("3_through")
+shader_parameter/glow_count = 3
+shader_parameter/glow_a = PackedVector4Array(337.9547, -8.154825, -26.73138, 0.2, 486.45306, 6.554857, 377.34872, 3.1, 475.73752, 2.9602365, 372.30206, 3.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_b = PackedVector4Array(3.0803682e-07, 0.1049106, 0.14614823, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_strength = 1.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_klyyb"]
+render_priority = 2
+next_pass = SubResource("ShaderMaterial_through")
+shader = ExtResource("2_skin")
+shader_parameter/glow_count = 3
+shader_parameter/glow_a = PackedVector4Array(337.9547, -8.154825, -26.73138, 0.2, 486.45306, 6.554857, 377.34872, 3.1, 475.73752, 2.9602365, 372.30206, 3.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_b = PackedVector4Array(3.0803682e-07, 0.1049106, 0.14614823, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_strength = 1.0
+shader_parameter/roughness = 0.06
+shader_parameter/metallic = 0.0
+shader_parameter/specular = 1.0
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_5s6u7"]
+radius = 0.698
+
+[node name="air_bubble" type="Node3D" unique_id=419128331]
+script = ExtResource("4_bubble")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=176814529 groups=["underwater_see_through"]]
+instance_shader_parameters/opacity = 0.01600000076
+instance_shader_parameters/rim_opacity = 0.22000001045
+mesh = SubResource("SphereMesh_5s6u7")
+surface_material_override/0 = SubResource("ShaderMaterial_klyyb")
+
+[node name="UnderwaterGlow" type="Node3D" parent="." unique_id=439962082]
+script = ExtResource("1_or6d4")
+color = Color(1.540184e-06, 0.524553, 0.7307412, 1)
+strength = 0.2
+size = 0.2
+metadata/_custom_type_script = "uid://csyjpi4nlac4u"
+
+[node name="Area3D" type="Area3D" parent="." unique_id=1298988481]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Area3D" unique_id=705222607]
+shape = SubResource("SphereShape3D_5s6u7")
+
+[node name="PopBubbles" type="GPUParticles3D" parent="."]
+script = ExtResource("5_emitter")
+trail_full_speed = 0.0
+spawn_radius = 0.5
+size_max = 0.09

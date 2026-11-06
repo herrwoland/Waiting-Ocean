@@ -200,3 +200,15 @@ num_cascades={
 "type": "uint",
 "value": 0
 }
+underwater_fog={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+underwater_absorb={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 45)
+}
+underwater_view={
+"type": "vec4",
+"value": Vector4(0, -1, 1, 1)
+}
