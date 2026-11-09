@@ -6,6 +6,16 @@ class_name AirBubble extends Node3D
 ##    so it can't be used twice on one dive).
 ## Its size is the Area3D's sphere shape (scaled with the node). Everything comes back as it was
 ## at the start of each day.
+##
+## Optional children it drives (each can be left out):
+##  - AnimationPlayer: "disappear" plays as a Gulp bursts, "appear" as it comes back. Once an
+##    animation has tracks, its length is how long that takes (pop_time / regrow_time otherwise).
+##  - IdleLoop (AudioStreamPlayer3D): loops while the bubble is there, fading with its size.
+##  - InsideLoop (AudioStreamPlayer3D): Pocket only, loops while your head is inside.
+##  - Sfx (AudioStreamPlayer3D): free for the animations' sound tracks.
+##  - PopBubbles (BubbleEmitter): not touched by script, wire it from the animations (burst()
+##    in a Call Method track, or key its `stream`).
+## The loop players repeat whatever stream they're given, looped on import or not.
 
 enum Kind { POCKET, GULP }
 
@@ -42,13 +52,34 @@ const GULP_GLOW := Color(0.55, 0.6, 0.62)
 @export_range(0.01, 2.0, 0.01) var pop_time := 0.15
 ## Seconds it takes to swell back up when it returns.
 @export_range(0.1, 20.0, 0.1) var regrow_time := 4.0
+## Let the script shrink and swell the bubble (scale and glow). Untick it when the
+## disappear/appear animations do that themselves.
+@export var scripted_grow := true
+
+@export_group('Glow pulse')
+## The glow breathes on a sine wave between these two strengths.
+@export_range(0.0, 20.0, 0.01, 'or_greater') var glow_min := 0.12
+@export_range(0.0, 20.0, 0.01, 'or_greater') var glow_max := 0.28
+## Seconds for one full pulse (0 = no pulse: stays at glow_max).
+@export_range(0.0, 60.0, 0.1) var pulse_period := 4.0
+
+@export_group('Sound')
+## Seconds the loops take to fade in and out.
+@export_range(0.0, 5.0, 0.05) var loop_fade := 0.4
 
 @onready var _mesh: MeshInstance3D = $MeshInstance3D
 @onready var _glow: UnderwaterGlow = $UnderwaterGlow
 @onready var _shape: CollisionShape3D = $Area3D/CollisionShape3D
 @onready var _pop_bubbles: BubbleEmitter = get_node_or_null(^'PopBubbles')
+@onready var _anim: AnimationPlayer = get_node_or_null(^'AnimationPlayer')
+@onready var _idle_loop: AudioStreamPlayer3D = get_node_or_null(^'IdleLoop')
+@onready var _inside_loop: AudioStreamPlayer3D = get_node_or_null(^'InsideLoop')
 
-var _glow_strength := 1.0
+var _pulse_time := 0.0
+var _size_fade := 1.0 # eased _grow: what the script scales the glow (and idle sound) by
+var _idle_db := 0.0
+var _inside_db := 0.0
+var _inside_level := 0.0 # InsideLoop fade, 0..1
 var _oxygen: Node
 var _player: Node3D
 var _inside := false
@@ -57,9 +88,13 @@ var _respawn_left := 0.0
 var _popping := false
 
 func _ready() -> void:
-	_glow_strength = _glow.strength
 	_apply_look()
 	if Engine.is_editor_hint(): return
+	_pulse_time = randf() * pulse_period # so a group of bubbles doesn't pulse in step
+	for loop in [_idle_loop, _inside_loop]:
+		if loop: loop.finished.connect(_replay.bind(loop))
+	if _idle_loop: _idle_db = _idle_loop.volume_db
+	if _inside_loop: _inside_db = _inside_loop.volume_db
 	# The sphere only gives the size; the head is tested against it directly (cheap, and no
 	# physics layers to keep clear of the boat's, see the boat).
 	var area := $Area3D as Area3D
@@ -74,6 +109,34 @@ func _on_day_started(_day: int) -> void:
 	_popping = false
 	_respawn_left = 0.0
 	_set_size(1.0)
+	if _has_anim(&'appear'): # jump to the end of it: back as if it never left
+		_anim.play(&'appear')
+		_anim.seek(_anim.current_animation_length, true)
+
+func _process(delta: float) -> void:
+	if Engine.is_editor_hint(): return
+	# Glow pulse.
+	var pulse := 1.0
+	if pulse_period > 0.0:
+		_pulse_time = fmod(_pulse_time + delta, pulse_period)
+		pulse = 0.5 + 0.5 * sin(TAU * _pulse_time / pulse_period)
+	_glow.strength = lerpf(glow_min, glow_max, pulse) * (_size_fade if scripted_grow else 1.0)
+	# Sound.
+	if _idle_loop:
+		if _size_fade > 0.0 and not _idle_loop.playing: _idle_loop.play()
+		elif _size_fade <= 0.0 and _idle_loop.playing: _idle_loop.stop()
+		_idle_loop.volume_db = _idle_db + linear_to_db(maxf(_size_fade, 1e-4))
+	if _inside_loop:
+		var step := delta / loop_fade if loop_fade > 0.0 else 1.0
+		_inside_level = move_toward(_inside_level, 1.0 if _inside else 0.0, step)
+		if _inside_level > 0.0 and not _inside_loop.playing: _inside_loop.play()
+		elif _inside_level <= 0.0 and _inside_loop.playing: _inside_loop.stop()
+		_inside_loop.volume_db = _inside_db + linear_to_db(maxf(_inside_level, 1e-4))
+
+## Loops whatever stream it's given, looped on import or not.
+func _replay(loop: AudioStreamPlayer3D) -> void:
+	if loop == _idle_loop and _size_fade > 0.0: loop.play()
+	elif loop == _inside_loop and _inside_level > 0.0: loop.play()
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint(): return
@@ -86,7 +149,7 @@ func _physics_process(delta: float) -> void:
 	var head_in := head.distance_to(_shape.global_position) < radius
 
 	if _popping:
-		_set_size(maxf(_grow - delta / pop_time, 0.0))
+		_set_size(maxf(_grow - delta / _duration(&'disappear', pop_time), 0.0))
 		if _grow <= 0.0:
 			_popping = false
 			_respawn_left = respawn_time
@@ -95,8 +158,10 @@ func _physics_process(delta: float) -> void:
 		if _respawn_left > 0.0:
 			_respawn_left -= delta
 			return
-		if _grow <= 0.0 and head_in: return # Don't come back around someone's head.
-		_set_size(minf(_grow + delta / regrow_time, 1.0))
+		if _grow <= 0.0:
+			if head_in: return # Don't come back around someone's head.
+			if _has_anim(&'appear'): _anim.play(&'appear')
+		_set_size(minf(_grow + delta / _duration(&'appear', regrow_time), 1.0))
 		if _grow < 1.0: return
 
 	match kind:
@@ -106,7 +171,7 @@ func _physics_process(delta: float) -> void:
 			if head_in:
 				_oxygen.gulp_air(breath_given)
 				_popping = true
-				if _pop_bubbles: _pop_bubbles.burst(0.35)
+				if _has_anim(&'disappear'): _anim.play(&'disappear')
 
 func _set_inside(inside: bool) -> void:
 	if inside == _inside: return
@@ -121,9 +186,18 @@ func _set_size(s: float) -> void:
 	_mesh.visible = shown
 	_glow.visible = shown
 	# Ease in and out so it swells and bursts rather than scaling linearly.
-	var e := s * s * (3.0 - 2.0 * s)
-	_mesh.scale = Vector3.ONE * maxf(e, 0.001)
-	_glow.strength = _glow_strength * e
+	_size_fade = s * s * (3.0 - 2.0 * s)
+	if scripted_grow: _mesh.scale = Vector3.ONE * maxf(_size_fade, 0.001)
+
+func _has_anim(anim_name: StringName) -> bool:
+	return _anim != null and _anim.has_animation(anim_name)
+
+## How long popping / coming back takes: the animation's length once it has tracks in it.
+func _duration(anim_name: StringName, fallback: float) -> float:
+	if _has_anim(anim_name):
+		var a := _anim.get_animation(anim_name)
+		if a.get_track_count() > 0 and a.length > 0.0: return a.length
+	return maxf(fallback, 0.01)
 
 func _apply_look() -> void:
 	if not is_node_ready(): return

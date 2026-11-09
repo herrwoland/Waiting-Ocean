@@ -3,8 +3,10 @@
 [ext_resource type="Script" uid="uid://csyjpi4nlac4u" path="res://assets/scripts/world/underwater_glow.gd" id="1_or6d4"]
 [ext_resource type="Shader" uid="uid://c5oepvksfw2w8" path="res://assets/shaders/spatial/air_bubble.gdshader" id="2_skin"]
 [ext_resource type="Shader" uid="uid://cmsn0i3b7wo2" path="res://assets/shaders/spatial/air_bubble_through.gdshader" id="3_through"]
-[ext_resource type="Script" path="res://assets/scripts/world/air_bubble.gd" id="4_bubble"]
+[ext_resource type="Script" uid="uid://kcdgiu8l218a" path="res://assets/scripts/world/air_bubble.gd" id="4_bubble"]
+[ext_resource type="Shader" uid="uid://b6okysbp05jgo" path="res://assets/shaders/particles/bubbles.gdshader" id="5_c6nty"]
 [ext_resource type="Script" uid="uid://f1i0c0keg8l6" path="res://assets/scripts/world/bubble_emitter.gd" id="5_emitter"]
+[ext_resource type="Shader" uid="uid://bikiihl7insv7" path="res://assets/shaders/particles/water_speck.gdshader" id="6_kbqtu"]
 
 [sub_resource type="SphereMesh" id="SphereMesh_5s6u7"]
 radial_segments = 16
@@ -15,7 +17,7 @@ render_priority = 1
 shader = ExtResource("3_through")
 shader_parameter/glow_count = 3
 shader_parameter/glow_a = PackedVector4Array(337.9547, -8.154825, -26.73138, 0.2, 486.45306, 6.554857, 377.34872, 3.1, 475.73752, 2.9602365, 372.30206, 3.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-shader_parameter/glow_b = PackedVector4Array(3.0803682e-07, 0.1049106, 0.14614823, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_b = PackedVector4Array(0, 0.1049106, 0.14614823, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 shader_parameter/glow_strength = 1.0
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_klyyb"]
@@ -24,7 +26,7 @@ next_pass = SubResource("ShaderMaterial_through")
 shader = ExtResource("2_skin")
 shader_parameter/glow_count = 3
 shader_parameter/glow_a = PackedVector4Array(337.9547, -8.154825, -26.73138, 0.2, 486.45306, 6.554857, 377.34872, 3.1, 475.73752, 2.9602365, 372.30206, 3.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-shader_parameter/glow_b = PackedVector4Array(3.0803682e-07, 0.1049106, 0.14614823, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_b = PackedVector4Array(0, 0.1049106, 0.14614823, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0.4798305, 0.6242795, 0.30046737, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 shader_parameter/glow_strength = 1.0
 shader_parameter/roughness = 0.06
 shader_parameter/metallic = 0.0
@@ -33,18 +35,510 @@ shader_parameter/specular = 1.0
 [sub_resource type="SphereShape3D" id="SphereShape3D_5s6u7"]
 radius = 0.698
 
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_8wjo5"]
+shader = ExtResource("5_c6nty")
+shader_parameter/spawn_radius = 0.5
+shader_parameter/inherit_velocity = Vector3(0, 0, 0)
+shader_parameter/inherit_amount = 0.4
+shader_parameter/rise_speed = 1.1
+shader_parameter/wobble = 0.35
+shader_parameter/size_min = 0.015
+shader_parameter/size_max = 0.09
+shader_parameter/surface_y = 0.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sobmm"]
+render_priority = 0
+shader = ExtResource("6_kbqtu")
+shader_parameter/color = Color(0.70966303, 0.8851756, 0.913388, 1)
+shader_parameter/ring = 1.0
+shader_parameter/square = false
+shader_parameter/pixel_grid = 6.0
+shader_parameter/use_sprite = false
+shader_parameter/fade_distance = 14.0
+shader_parameter/water_level = 0.0
+shader_parameter/depth_darkening = 0.04
+shader_parameter/glow_count = 0
+shader_parameter/glow_a = PackedVector4Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_b = PackedVector4Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+shader_parameter/glow_strength = 1.0
+shader_parameter/viewport_height = 720.0
+shader_parameter/ambient_glow = 0.45
+shader_parameter/sun_scatter = 0.8
+shader_parameter/local_scatter = 5.0
+shader_parameter/forward_scatter = 0.6
+shader_parameter/glow_scatter = 100.0
+shader_parameter/glint_min_pixels = 2.5
+
+[sub_resource type="QuadMesh" id="QuadMesh_wv3u0"]
+material = SubResource("ShaderMaterial_sobmm")
+
+[sub_resource type="Animation" id="Animation_a2vnc"]
+length = 0.001
+tracks/0/type = "bezier"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("MeshInstance3D:scale:x")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(1, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/1/type = "bezier"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("MeshInstance3D:scale:y")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(1, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/2/type = "bezier"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("MeshInstance3D:scale:z")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(1, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/3/type = "bezier"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("MeshInstance3D:instance_shader_parameters/opacity")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(0.016, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/4/type = "bezier"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("MeshInstance3D:instance_shader_parameters/rim_opacity")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(0.22000001, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("PopBubbles:emitting")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [false]
+}
+tracks/6/type = "bezier"
+tracks/6/imported = false
+tracks/6/enabled = true
+tracks/6/path = NodePath("PopBubbles:amount")
+tracks/6/interp = 1
+tracks/6/loop_wrap = true
+tracks/6/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(400, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/7/type = "bezier"
+tracks/7/imported = false
+tracks/7/enabled = true
+tracks/7/path = NodePath("UnderwaterGlow:strength")
+tracks/7/interp = 1
+tracks/7/loop_wrap = true
+tracks/7/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(0.2, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/8/type = "bezier"
+tracks/8/imported = false
+tracks/8/enabled = true
+tracks/8/path = NodePath("UnderwaterGlow:size")
+tracks/8/interp = 1
+tracks/8/loop_wrap = true
+tracks/8/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(0.2, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/9/type = "bezier"
+tracks/9/imported = false
+tracks/9/enabled = true
+tracks/9/path = NodePath("UnderwaterGlow:reach")
+tracks/9/interp = 1
+tracks/9/loop_wrap = true
+tracks/9/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(60, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/10/type = "bezier"
+tracks/10/imported = false
+tracks/10/enabled = true
+tracks/10/path = NodePath("UnderwaterGlow:color:r")
+tracks/10/interp = 1
+tracks/10/loop_wrap = true
+tracks/10/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(0, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/11/type = "bezier"
+tracks/11/imported = false
+tracks/11/enabled = true
+tracks/11/path = NodePath("UnderwaterGlow:color:g")
+tracks/11/interp = 1
+tracks/11/loop_wrap = true
+tracks/11/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(0.524553, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/12/type = "bezier"
+tracks/12/imported = false
+tracks/12/enabled = true
+tracks/12/path = NodePath("UnderwaterGlow:color:b")
+tracks/12/interp = 1
+tracks/12/loop_wrap = true
+tracks/12/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(0.7307412, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/13/type = "bezier"
+tracks/13/imported = false
+tracks/13/enabled = true
+tracks/13/path = NodePath("UnderwaterGlow:color:a")
+tracks/13/interp = 1
+tracks/13/loop_wrap = true
+tracks/13/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(1, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+
+[sub_resource type="Animation" id="Animation_appear"]
+resource_name = "appear"
+length = 5.0
+step = 0.1
+tracks/0/type = "bezier"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("MeshInstance3D:scale:x")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"handle_modes": PackedInt32Array(2, 2, 2, 2, 2, 2, 2),
+"points": PackedFloat32Array(0, 0, 0, 0.16666667, 0, 0.67282015, -0.16666667, 0, 0.36666667, 0, 0.8, -0.36666667, 0, 0.3, 0, 0.7, -0.3, 0, 0.16666667, 0, 1, -0.16666667, 0, 0.33333334, 0, 1.1, -0.33333334, 0, 0.33333334, 0, 1, -0.33333334, 0, 0, 0),
+"times": PackedFloat32Array(0, 0.5, 1.6, 2.5, 3, 4, 5)
+}
+tracks/1/type = "bezier"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("MeshInstance3D:scale:y")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"handle_modes": PackedInt32Array(2, 2, 2, 2, 2, 2, 2),
+"points": PackedFloat32Array(0, 0, 0, 0.16666667, 0, 0.67282015, -0.16666667, 0, 0.36666667, 0, 0.8, -0.36666667, 0, 0.3, 0, 0.7, -0.3, 0, 0.16666667, 0, 1, -0.16666667, 0, 0.33333334, 0, 1.1, -0.33333334, 0, 0.33333334, 0, 1, -0.33333334, 0, 0, 0),
+"times": PackedFloat32Array(0, 0.5, 1.6, 2.5, 3, 4, 5)
+}
+tracks/2/type = "bezier"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("MeshInstance3D:scale:z")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"handle_modes": PackedInt32Array(2, 2, 2, 2, 2, 2, 2),
+"points": PackedFloat32Array(0, 0, 0, 0.16666667, 0, 0.67282015, -0.16666667, 0, 0.36666667, 0, 0.8, -0.36666667, 0, 0.3, 0, 0.7, -0.3, 0, 0.16666667, 0, 1, -0.16666667, 0, 0.33333334, 0, 1.1, -0.33333334, 0, 0.33333334, 0, 1, -0.33333334, 0, 0, 0),
+"times": PackedFloat32Array(0, 0.5, 1.6, 2.5, 3, 4, 5)
+}
+tracks/3/type = "bezier"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("MeshInstance3D:instance_shader_parameters/opacity")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"handle_modes": PackedInt32Array(0, 2),
+"points": PackedFloat32Array(0, -0.25, 0, 0.25, 0, 0.016, -0.26666668, -0.002666667, 0, 0),
+"times": PackedFloat32Array(0, 1.6)
+}
+tracks/4/type = "bezier"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("MeshInstance3D:instance_shader_parameters/rim_opacity")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"handle_modes": PackedInt32Array(0, 2),
+"points": PackedFloat32Array(0, -0.25, 0, 0.25, 0, 0.22000001, -0.26666668, -0.03666667, 0, 0),
+"times": PackedFloat32Array(0, 1.6)
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("PopBubbles:emitting")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0, 4.9),
+"transitions": PackedFloat32Array(1, 1),
+"update": 1,
+"values": [true, false]
+}
+tracks/6/type = "bezier"
+tracks/6/imported = false
+tracks/6/enabled = true
+tracks/6/path = NodePath("PopBubbles:amount")
+tracks/6/interp = 1
+tracks/6/loop_wrap = true
+tracks/6/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(50, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/7/type = "bezier"
+tracks/7/imported = false
+tracks/7/enabled = true
+tracks/7/path = NodePath("UnderwaterGlow:strength")
+tracks/7/interp = 1
+tracks/7/loop_wrap = true
+tracks/7/keys = {
+"handle_modes": PackedInt32Array(2, 0),
+"points": PackedFloat32Array(0, 0, 0, 0.5, 0.033333335, 0.2, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0, 3)
+}
+tracks/8/type = "bezier"
+tracks/8/imported = false
+tracks/8/enabled = true
+tracks/8/path = NodePath("UnderwaterGlow:size")
+tracks/8/interp = 1
+tracks/8/loop_wrap = true
+tracks/8/keys = {
+"handle_modes": PackedInt32Array(2, 0),
+"points": PackedFloat32Array(0.05, 0, 0, 0.5, 0.025, 0.2, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0, 3)
+}
+tracks/9/type = "bezier"
+tracks/9/imported = false
+tracks/9/enabled = true
+tracks/9/path = NodePath("UnderwaterGlow:reach")
+tracks/9/interp = 1
+tracks/9/loop_wrap = true
+tracks/9/keys = {
+"handle_modes": PackedInt32Array(2, 0),
+"points": PackedFloat32Array(1, 0, 0, 0.5, 9.833333, 60, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0, 3)
+}
+tracks/10/type = "bezier"
+tracks/10/imported = false
+tracks/10/enabled = true
+tracks/10/path = NodePath("UnderwaterGlow:color:r")
+tracks/10/interp = 1
+tracks/10/loop_wrap = true
+tracks/10/keys = {
+"handle_modes": PackedInt32Array(2, 0),
+"points": PackedFloat32Array(1, 0, 0, 0.5, -0.16666667, 0, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0, 3)
+}
+tracks/11/type = "bezier"
+tracks/11/imported = false
+tracks/11/enabled = true
+tracks/11/path = NodePath("UnderwaterGlow:color:g")
+tracks/11/interp = 1
+tracks/11/loop_wrap = true
+tracks/11/keys = {
+"handle_modes": PackedInt32Array(2, 0),
+"points": PackedFloat32Array(1, 0, 0, 0.5, -0.079241164, 0.524553, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0, 3)
+}
+tracks/12/type = "bezier"
+tracks/12/imported = false
+tracks/12/enabled = true
+tracks/12/path = NodePath("UnderwaterGlow:color:b")
+tracks/12/interp = 1
+tracks/12/loop_wrap = true
+tracks/12/keys = {
+"handle_modes": PackedInt32Array(2, 0),
+"points": PackedFloat32Array(1, 0, 0, 0.5, -0.044876467, 0.7307412, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0, 3)
+}
+tracks/13/type = "bezier"
+tracks/13/imported = false
+tracks/13/enabled = true
+tracks/13/path = NodePath("UnderwaterGlow:color:a")
+tracks/13/interp = 1
+tracks/13/loop_wrap = true
+tracks/13/keys = {
+"handle_modes": PackedInt32Array(2, 0),
+"points": PackedFloat32Array(1, 0, 0, 0.5, 0, 1, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0, 3)
+}
+
+[sub_resource type="Animation" id="Animation_disappear"]
+resource_name = "disappear"
+length = 0.001
+tracks/0/type = "bezier"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("MeshInstance3D:scale:x")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"handle_modes": PackedInt32Array(2, 1),
+"points": PackedFloat32Array(1, 0, 0, 0.4, -0.004629612, 2, 0, 0, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/1/type = "bezier"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("MeshInstance3D:scale:y")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"handle_modes": PackedInt32Array(2, 1),
+"points": PackedFloat32Array(1, 0, 0, 0.4, -0.004629612, 2, 0, 0, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/2/type = "bezier"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("MeshInstance3D:scale:z")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"handle_modes": PackedInt32Array(2, 1),
+"points": PackedFloat32Array(1, 0, 0, 0.4, 0.004629612, 2, 0, 0, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/3/type = "bezier"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("MeshInstance3D:instance_shader_parameters/opacity")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"handle_modes": PackedInt32Array(0, 2),
+"points": PackedFloat32Array(0.016, -0.25, 0, 0.25, 0, 0, -0.083333336, 0.0026666669, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/4/type = "bezier"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("MeshInstance3D:instance_shader_parameters/rim_opacity")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"handle_modes": PackedInt32Array(0, 2),
+"points": PackedFloat32Array(0.22000001, -0.25, 0, 0.25, 0, 0, -0.083333336, 0.03666667, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("PopBubbles:emitting")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0, 0.5),
+"transitions": PackedFloat32Array(1, 1),
+"update": 1,
+"values": [true, false]
+}
+tracks/6/type = "bezier"
+tracks/6/imported = false
+tracks/6/enabled = true
+tracks/6/path = NodePath("PopBubbles:amount")
+tracks/6/interp = 1
+tracks/6/loop_wrap = true
+tracks/6/keys = {
+"handle_modes": PackedInt32Array(0),
+"points": PackedFloat32Array(400, -0.25, 0, 0.25, 0),
+"times": PackedFloat32Array(0)
+}
+tracks/7/type = "bezier"
+tracks/7/imported = false
+tracks/7/enabled = true
+tracks/7/path = NodePath("UnderwaterGlow:strength")
+tracks/7/interp = 1
+tracks/7/loop_wrap = true
+tracks/7/keys = {
+"handle_modes": PackedInt32Array(0, 2),
+"points": PackedFloat32Array(0.2, -0.25, 0, 0.25, 0, 0, -0.083333336, 0.033333335, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/8/type = "bezier"
+tracks/8/imported = false
+tracks/8/enabled = true
+tracks/8/path = NodePath("UnderwaterGlow:size")
+tracks/8/interp = 1
+tracks/8/loop_wrap = true
+tracks/8/keys = {
+"handle_modes": PackedInt32Array(0, 2),
+"points": PackedFloat32Array(0.2, -0.25, 0, 0.25, 0, 0.05, -0.083333336, 0.025000002, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/9/type = "bezier"
+tracks/9/imported = false
+tracks/9/enabled = true
+tracks/9/path = NodePath("UnderwaterGlow:reach")
+tracks/9/interp = 1
+tracks/9/loop_wrap = true
+tracks/9/keys = {
+"handle_modes": PackedInt32Array(0, 2),
+"points": PackedFloat32Array(60, -0.25, 0, 0.25, 0, 1, -0.083333336, 9.833334, 0, 0),
+"times": PackedFloat32Array(0, 0.5)
+}
+tracks/10/type = "method"
+tracks/10/imported = false
+tracks/10/enabled = true
+tracks/10/path = NodePath("PopBubbles")
+tracks/10/interp = 1
+tracks/10/loop_wrap = true
+tracks/10/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"values": [{
+"args": [0.4, 1.0],
+"method": &"burst"
+}]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_bubble"]
+_data = {
+&"RESET": SubResource("Animation_a2vnc"),
+&"appear": SubResource("Animation_appear"),
+&"disappear": SubResource("Animation_disappear")
+}
+
 [node name="air_bubble" type="Node3D" unique_id=419128331]
 script = ExtResource("4_bubble")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=176814529 groups=["underwater_see_through"]]
-instance_shader_parameters/opacity = 0.01600000076
-instance_shader_parameters/rim_opacity = 0.22000001045
+instance_shader_parameters/opacity = 0.016
+instance_shader_parameters/rim_opacity = 0.22000001
+instance_shader_parameters/tint = Color(0.719326, 0.92035115, 0.97677594, 1)
 mesh = SubResource("SphereMesh_5s6u7")
 surface_material_override/0 = SubResource("ShaderMaterial_klyyb")
 
 [node name="UnderwaterGlow" type="Node3D" parent="." unique_id=439962082]
 script = ExtResource("1_or6d4")
-color = Color(1.540184e-06, 0.524553, 0.7307412, 1)
+color = Color(0, 0.524553, 0.7307412, 1)
 strength = 0.2
 size = 0.2
 metadata/_custom_type_script = "uid://csyjpi4nlac4u"
@@ -54,8 +548,35 @@ metadata/_custom_type_script = "uid://csyjpi4nlac4u"
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Area3D" unique_id=705222607]
 shape = SubResource("SphereShape3D_5s6u7")
 
-[node name="PopBubbles" type="GPUParticles3D" parent="."]
+[node name="PopBubbles" type="GPUParticles3D" parent="." unique_id=848048477]
+layers = 524288
+cast_shadow = 0
+emitting = false
+amount = 400
+amount_ratio = 0.0
+lifetime = 8.0
+explosiveness = 1.0
+randomness = 0.3
+visibility_aabb = AABB(-15, -5, -15, 30, 60, 30)
+process_material = SubResource("ShaderMaterial_8wjo5")
+draw_pass_1 = SubResource("QuadMesh_wv3u0")
 script = ExtResource("5_emitter")
 trail_full_speed = 0.0
-spawn_radius = 0.5
 size_max = 0.09
+spawn_radius = 0.5
+bubble_color = Color(0.70966303, 0.8851756, 0.913388, 1)
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1071688764]
+libraries/ = SubResource("AnimationLibrary_bubble")
+
+[node name="IdleLoop" type="AudioStreamPlayer3D" parent="." unique_id=1360748448]
+max_distance = 30.0
+bus = &"SFX"
+
+[node name="InsideLoop" type="AudioStreamPlayer3D" parent="." unique_id=1260838573]
+max_distance = 10.0
+bus = &"SFX"
+
+[node name="Sfx" type="AudioStreamPlayer3D" parent="." unique_id=427822718]
+max_distance = 30.0
+bus = &"SFX"
