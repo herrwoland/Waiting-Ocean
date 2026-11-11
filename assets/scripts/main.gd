@@ -50,7 +50,7 @@ func _ready() -> void:
 	pause_menu.get_node('VBoxContainer/SettingsButton').pressed.connect(_on_settings_pressed.bind(pause_menu))
 	pause_menu.get_node('VBoxContainer/QuitButton').pressed.connect(get_tree().quit)
 	settings_menu.closed.connect(_on_settings_closed)
-	settings_menu.setup($Water, $Player, $Boat, $RetroPost)
+	settings_menu.setup($Water, $Player, $RetroPost)
 
 func _on_settings_pressed(from_menu: CanvasLayer) -> void:
 	_settings_return_menu = from_menu
@@ -99,11 +99,12 @@ func _input(event: InputEvent) -> void:
 		should_render_imgui = not should_render_imgui
 	elif event.is_action_pressed(&'toggle_fullscreen'):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED else DisplayServer.WINDOW_MODE_WINDOWED)
+		settings_menu.save_settings()
 	elif event.is_action_pressed(&'ui_cancel'):
 		if Console.is_visible():
 			pass # the console closes on Esc itself
 		elif settings_menu.visible:
-			settings_menu._on_back_pressed()
+			settings_menu.back()
 		elif not game_started:
 			pass
 		elif pause_menu.visible:

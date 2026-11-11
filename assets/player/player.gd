@@ -36,6 +36,7 @@ enum State { WALK, SWIM, PILOT, OPERATE, CLIMB }
 @export_range(-90.0, 90.0, 0.5) var lock_wrist_tilt := 0.0
 @export_group('')
 @export var mouse_sensitivity: float = 0.0025
+@export var invert_look := false # mouse up looks down (settings menu: Controls)
 @export var turn_speed: float = 2.0 # radians/sec, for keyboard look (Q/R or arrow keys), eg. over a remote desktop
 @export var look_speed: float = 1.5 # radians/sec, for keyboard look up/down (arrow keys)
 ## On a ladder, how far (degrees) the view can turn from it either way, and from where the turn
@@ -262,7 +263,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		_turn_head(-event.relative.x * mouse_sensitivity)
-		camera.rotation.x -= event.relative.y * mouse_sensitivity
+		camera.rotation.x -= event.relative.y * mouse_sensitivity * (-1.0 if invert_look else 1.0)
 		camera.rotation.x = clampf(camera.rotation.x, -PI / 2.0, PI / 2.0)
 	elif event.is_action_pressed(&'interact') and not captured:
 		_try_interact(event is InputEventKey)

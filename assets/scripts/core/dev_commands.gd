@@ -10,6 +10,7 @@ const PRESET_DIR := 'res://assets/weather/presets/'
 const LEVIATHAN_ENCOUNTER := 'res://assets/scripts/world/leviathan_encounter.gd'
 const POWER_PANEL := 'res://scenes/boat/power_panel.gd'
 const FURNACE := 'res://scenes/boat/furnace_fire.gd'
+const BOAT := 'res://assets/models/ship/boat.gd'
 
 var _mouse_mode_before := Input.MOUSE_MODE_VISIBLE
 var _volumetric_fog_before := true # fog off remembers it, fog on brings it back
@@ -33,6 +34,7 @@ func _ready() -> void:
 	Console.add_command('infinite_fuel', _infinite_fuel, ['on|off'], 0, 'The furnace never burns down (fills it up).')
 	Console.add_command('fuel', _fuel, ['0..100'], 0, 'Sets the furnace fuel in percent. No value: prints it.')
 	Console.add_command('power', _power, ['on|off'], 0, 'Pulls the ship\'s power lever (plays once the console closes).')
+	Console.add_command('engine_power', _engine_power, ['newtons'], 0, 'Sets each engine cell full-throttle thrust (default 400000, max 1000000). No value: prints it.')
 	Console.add_command('day', _day, ['1..5'], 0, 'Starts that morning (unsaved). No value: restarts today.')
 	Console.add_command('fps', _fps, ['on|off'], 0, 'Shows/hides the FPS counter.')
 	Console.add_cvar_reference('time_scale', Engine, 'time_scale', 'Game speed (1 = normal).')
@@ -178,6 +180,16 @@ func _fuel(value: String) -> void:
 			return
 		furnace.set_fuel(furnace.max_fuel * clampf(value.to_float(), 0.0, 100.0) / 100.0)
 	Console.print_info('Fuel: %d%%' % roundi(furnace.fuel_level() * 100.0))
+
+func _engine_power(value: String) -> void:
+	var boat := _find_scripted(BOAT)
+	if not boat: return
+	if not value.is_empty():
+		if not value.is_valid_float():
+			Console.print_error('Give a thrust in newtons, eg. 400000.')
+			return
+		boat.set_engine_power(value.to_float())
+	Console.print_info('Engine power: %d N per cell' % roundi(boat.engine_power))
 
 func _power(value: String) -> void:
 	var panel := _find_scripted(POWER_PANEL)
