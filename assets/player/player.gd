@@ -62,6 +62,7 @@ enum State { WALK, SWIM, PILOT, OPERATE, CLIMB }
 ## Tune it on the node: amount, lifetime and the process material's speeds and scale.
 @onready var head_splash: GPUParticles3D = get_node_or_null(^'HeadSplash')
 @onready var surface_ripples: GPUParticles3D = $SurfaceRipples
+@onready var _oxygen: Node = get_node_or_null(^'OxygenController')
 @onready var splash_player: AudioStreamPlayer = get_node_or_null(^'SplashPlayer')
 ## Air dragged under as we break the surface. Not breath -- see OxygenController for that;
 ## this is the cloud that comes down with a body. Tune its look on the node itself.
@@ -592,6 +593,8 @@ func _process_swim(delta: float) -> void:
 	elif Input.is_action_pressed(&'swim_down'):
 		velocity.y = -swim_speed
 		swim_stroke.y = -swim_speed
+	elif _oxygen and _oxygen.breathing_air():
+		velocity.y = 0.0 # head in an air pocket: hang there breathing, no sinking out of it
 	else:
 		velocity.y = -sink_speed
 

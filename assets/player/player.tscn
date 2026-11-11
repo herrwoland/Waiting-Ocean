@@ -118,6 +118,7 @@ collision_layer = 2
 collision_mask = 3
 floor_max_angle = 1.2217305
 script = ExtResource("1_player")
+sink_speed = 0.7
 
 [node name="InspectionController" type="Node" parent="." unique_id=899785788 node_paths=PackedStringArray("player", "camera", "socket", "overlay", "item_label")]
 script = ExtResource("3_inspect")

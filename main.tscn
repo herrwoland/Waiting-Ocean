@@ -392,7 +392,7 @@ shadow_opacity = 0.8
 shadow_blur = 4.592
 
 [node name="Rain" type="Node3D" parent="." unique_id=1570342401]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 330.177, 13.953503, 12.88673)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 335.0841, -6.85727, -25.459795)
 script = ExtResource("60_rain")
 intensity = 0.0
 wind_strength = 2.0
@@ -449,7 +449,7 @@ shape = SubResource("CylinderShape3D_5s6u7")
 debug_color = Color(0.8128558, 0.030233042, 0.97549945, 0.41960785)
 
 [node name="Water" type="MeshInstance3D" parent="." unique_id=946478083]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 331, 0, 13)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 336, 0, -25)
 layers = 524288
 sorting_offset = 999.0
 material_override = ExtResource("5_lt75t")
@@ -585,7 +585,10 @@ transform = Transform3D(0.94595885, 0, 0.32428652, 0, 1, 0, -0.32428652, 0, 0.94
 [node name="test_magic" type="Node3D" parent="shore" unique_id=622751833]
 
 [node name="air_bubble" parent="shore/test_magic" unique_id=419128331 instance=ExtResource("34_blkrb")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 36.73136, -12.756003, 471.07782)
+transform = Transform3D(-8.742278e-08, 0, -2, 0, 2, 0, 2, 0, -8.742278e-08, 36.73136, -12.756003, 471.07782)
+kind = 1
+color = Color(0.97, 0.45590004, 0.7729284, 1)
+glow_color = Color(0.7423459, 0.48348308, 0.73645264, 1)
 
 [node name="Bed" type="Area3D" parent="." unique_id=706006569]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -135.76767, 5.0240335, 10.663119)

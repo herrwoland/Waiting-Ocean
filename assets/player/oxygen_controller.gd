@@ -48,6 +48,13 @@ func enter_air(source: Object, rate: float) -> void:
 func leave_air(source: Object) -> void:
 	_air_sources.erase(source)
 
+## True while the head is in air under the water (an AirBubble pocket): the player hangs there
+## instead of sinking out of it.
+func breathing_air() -> bool:
+	for source in _air_sources.keys():
+		if is_instance_valid(source): return true
+	return false
+
 ## A gulp of air: `amount` seconds of breath at once (<= 0: a full breath).
 func gulp_air(amount: float = 0.0) -> void:
 	if _died: return
