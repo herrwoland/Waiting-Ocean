@@ -49,7 +49,8 @@ const HEAD_LENGTH := 160.0 # m (model units) from the mouth to where the Body's 
 @export var surface_offset := 0.0
 
 @export_group('Rising')
-## How deep it starts and ends (m below sea level).
+## How deep it starts and ends (m below sea level). It starts deeper where it must, for its back
+## to be well under and its call to come call_lead s before it shows.
 @export var despawn_depth := 250.0
 @export var rise_speed := 12.0 # m/s forward while rising
 @export var rise_climb := 5.0 # m/s fastest climb; it eases off near the surface
@@ -265,13 +266,14 @@ func begin(p_ship: RigidBody3D, p_player: Node3D, p_water: Node3D, bearing: Vect
 	bearing.y = 0.0
 	bearing = bearing.normalized()
 	# the run it swims climbing up until its back breaks the surface, and where she'll be by then
-	var rise_time := maxf(despawn_depth - _radius(), 0.0) / maxf(rise_climb, 0.1)
+	var depth := maxf(despawn_depth, _top() + rise_climb * call_lead + 20.0)
+	var rise_time := maxf(depth - _top(), 0.0) / maxf(rise_climb, 0.1)
 	var run := rise_time * rise_speed
 	var flat_vel := Vector3(ship.linear_velocity.x, 0.0, ship.linear_velocity.z)
 	var ship_then := ship.global_position + flat_vel * rise_time
 	var dist := _rng.randf_range(minf(surface_distance_min, surface_distance_max), maxf(surface_distance_min, surface_distance_max))
 	var origin := ship_then + bearing * (dist + run)
-	origin.y = _sea() - despawn_depth
+	origin.y = _sea() - depth
 	_curve = (1.0 if _rng.randf() < 0.5 else -1.0) / (drift_radius * _k)
 	_curve_target = _curve
 	# aim the drifting curve so that, unseen, it passes her dark_gap off its flank
@@ -283,7 +285,7 @@ func begin(p_ship: RigidBody3D, p_player: Node3D, p_water: Node3D, bearing: Vect
 	for i in range(-60, 61):
 		var yaw := toward + deg_to_rad(i)
 		var c := _closest(at, yaw, _curve, Vector2(ship_then.x, ship_then.z), 9000.0)
-		var err := absf(c.x - (gap + _radius()))
+		var err := absf(c.x - (gap + _side()))
 		if c.y > run and err < best_err:
 			best_err = err
 			_yaw = yaw
@@ -361,7 +363,7 @@ func _process_rise(delta: float) -> float:
 	var gap := _surface_y() - global_position.y
 	_climb_to(clampf(gap / rise_ease, 0.0, rise_climb), delta)
 	# the call, heard a little before it breaks the surface
-	var top := global_position.y + _radius()
+	var top := global_position.y + _top()
 	var eta := (_sea() - top) / maxf(_vy, 0.5)
 	if not _called and eta <= call_lead:
 		_called = true
@@ -369,7 +371,8 @@ func _process_rise(delta: float) -> float:
 	if not _surfaced and top > _sea():
 		_surfaced = true
 		_play(_surface_sound)
-	if gap < 2.0:
+	if _surfaced or gap < 2.0:
+		# its back shows: from here it hunts or drifts, still climbing (see _hold_surface)
 		_set_state(State.HUNT if _lit else State.DRIFT)
 	return rise_speed
 
@@ -588,7 +591,7 @@ func _suck(d: float) -> void:
 	var reach := suction_range * _k
 	var hunting := state == State.HUNT or state == State.COMMIT
 	var on := _lit and hunting and not _ship_held and d < reach and d > 1.0 \
-			and global_position.y > _sea() - _radius() and _facing() < deg_to_rad(suction_cone)
+			and global_position.y > _sea() - _top() and _facing() < deg_to_rad(suction_cone)
 	if on:
 		var to := global_position - ship.global_position
 		to.y = 0.0
@@ -791,7 +794,7 @@ func _climb_to(target: float, delta: float, accel := -1.0) -> void:
 	_vy = move_toward(_vy, target, (vertical_acceleration if accel < 0.0 else accel) * delta)
 
 func _hold_surface(delta: float) -> void:
-	_climb_to(clampf((_surface_y() - global_position.y) / 4.0, -2.0, 2.0), delta)
+	_climb_to(clampf((_surface_y() - global_position.y) / rise_ease, -2.0, rise_climb), delta)
 
 func _sway_tail() -> void:
 	if _tail:
@@ -839,7 +842,7 @@ func _closest(at: Vector2, yaw: float, curve: float, target: Vector2, max_s: flo
 ## A curve (within its tightest turn) that carries it past her `gap` m off its flank, changing its
 ## turn as little as it can.
 func _plan_pass(gap: float) -> float:
-	var want := gap + _radius()
+	var want := gap + _side()
 	var mk := _max_curve()
 	var best := _curve
 	var best_err := INF
@@ -862,8 +865,16 @@ func _sea() -> float:
 func _surface_y() -> float:
 	return _sea() + surface_offset * _k
 
+## A rough half-thickness, for a body with no colliders to measure.
 func _radius() -> float:
 	return body_length * 0.1
+
+## How far its back stands above its axis and its flank is from it (m), measured from its colliders.
+func _top() -> float:
+	return _splash.body_top if _splash and _splash.body_top > 0.0 else _radius()
+
+func _side() -> float:
+	return _splash.body_side if _splash and _splash.body_side > 0.0 else _radius()
 
 func _mult() -> float:
 	return return_multiplier if _returned else 1.0

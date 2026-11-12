@@ -97,6 +97,11 @@ var _bow_fwd := Vector3.ZERO # the way it faces (flat)
 var _bow_w := 0.0 # its half-width at the waterline (m)
 var _bow_speed := 0.0 # m/s through the water, eased (the sea takes a moment to pile up)
 var emitted := [0, 0, 0, 0]
+## The body at rest, measured from its colliders in setup() (m, from the middle of the mouth): how
+## far it stands above that, hangs below it and reaches to either side. 0 without colliders.
+var body_top := 0.0
+var body_bottom := 0.0
+var body_side := 0.0
 var last_crown := 0.0 # height (m) of the last crown burst thrown # particles placed so far, per layer (for a look in the debugger)
 
 ## The body to follow, called once at rest: its colliders (each with a CollisionShape3D child
@@ -150,6 +155,9 @@ func _build_stations(colliders: Array[Node3D], mouth: Node3D) -> void:
 			var rel := p - origin
 			var k := int(floor(rel.dot(-fwd) / SLICE))
 			var x := rel.dot(right)
+			body_top = maxf(body_top, rel.y)
+			body_bottom = maxf(body_bottom, -rel.y)
+			body_side = maxf(body_side, absf(x))
 			var e: Array = slices.get(k, [INF, -INF, INF, -INF])
 			slices[k] = [minf(e[0], x), maxf(e[1], x), minf(e[2], p.y), maxf(e[3], p.y)]
 		var rest := col.global_transform
