@@ -85,6 +85,8 @@ var lay_rate := 0.0
 ## would lie in the stone turns out of it, within its limit.
 var keep_out := Callable()
 const STONE_GIVE := 3.0
+const BOW_SKEW := 1.7 # >1: a bowed arm's belly sits past its middle (1 = an even arc)
+const STONE_SPEED := 4.0 # x max_joint_speed: how fast a joint may turn out of the stone
 ## BOAT, not yet holding: meters its tip has climbed up its route from the
 ## bottom (under her keel) toward the grip spot; < 0 = still coming up to it.
 var climb := -1.0
@@ -114,6 +116,30 @@ var _root_origin: Vector3 # skeleton space
 var _frames: Array[Basis] = [] # skeleton space, per bone, from the last rebuild
 var _pos: PackedVector3Array # skeleton space, joints then the tip
 var _world := 1.0 # world meters per skeleton unit (the model's scale in its scene)
+## Loose arms never move in step: each has its own tempo and phases (set from its index).
+var _tempo := 1.0
+var _ph_a := 0.0
+var _ph_b := 0.0
+## How much a loose arm wanders (goals_spread): 0 = straight, as it used to be.
+var sway := 1.0
+## Loose, the tip rolls into a slow spiral (0..1), toward _curl_world; set by goals_spread.
+var idle_curl := 0.0
+var _curl_world := Vector3.ZERO
+## Loose arms give a little past their goal and swing back at the thin end (soft tissue);
+## an arm with a job to do never does.
+var soft := false
+## Keeping clear of the other arms: an offset per point (world, m) the Kraken adds to when two
+## arms lie in each other; it is laid over the goals and fades by itself.
+var avoid := PackedVector3Array()
+var _lay_shape := PackedVector3Array() # the shape a laid arm is laid on this frame (goals + avoid)
+var _drag := PackedFloat32Array() # per point: how much of the water's hold it feels (the thin end most)
+var _frac := PackedFloat32Array() # per point: how far along the arm it is, 0..1
+var _swell := PackedFloat32Array() # per point: how much of a loose arm's wave it takes (grows toward the tip)
+var _local: Array[Basis] = [] # per bone: its pose against its parent, from the last full rebuild
+var _local_fresh := false # nothing has turned a joint since
+var _parent_basis := Basis.IDENTITY # skeleton space: what joint 0 hangs from
+var avoid_live := false
+const AVOID_FADE := 0.35 # 1/s
 const TELEPORT := 30.0 # a root jump this big in one step starts the arm over
 
 func _init(target: Skeleton3D, arm_index: int, chain: PackedInt32Array) -> void:
@@ -141,6 +167,8 @@ func _init(target: Skeleton3D, arm_index: int, chain: PackedInt32Array) -> void:
 	var parent := skeleton.get_bone_parent(bones[0])
 	var parent_basis := skeleton.get_bone_global_rest(parent).basis.orthonormalized() if parent >= 0 else Basis.IDENTITY
 	_base = parent_basis * _rest_local[0]
+	_parent_basis = parent_basis
+	_local.resize(_n)
 	_root_origin = skeleton.get_bone_global_rest(bones[0]).origin
 	_bend.resize(_n)
 	_vel.resize(_n)
@@ -149,6 +177,16 @@ func _init(target: Skeleton3D, arm_index: int, chain: PackedInt32Array) -> void:
 	_pos.resize(_n + 1)
 	points.resize(_n + 1)
 	goals.resize(_n + 1)
+	avoid.resize(_n + 1)
+	for d in along:
+		var t := d / length
+		_frac.append(t)
+		_drag.append(0.45 + 0.7 * t)
+		_swell.append(t * sqrt(t))
+	var h := float(arm_index) * 2.399963 # the golden angle: no two arms alike, none in step
+	_tempo = 0.8 + 0.45 * fposmod(h * 0.618, 1.0)
+	_ph_a = h
+	_ph_b = h * 1.7 + 1.0
 	configure()
 	_rebuild()
 	goals = points.duplicate()
@@ -207,6 +245,7 @@ func set_role(new_role: Role) -> void:
 	seek_tip = 0.0
 	curl_from = -1.0
 	reach_front = 1.0
+	idle_curl = 0.0
 	if new_role == Role.BOAT:
 		tip_target = tip() # the reach for the hull starts from wherever the tip is now
 
@@ -225,6 +264,7 @@ func coil_center() -> Vector3:
 
 ## Jump straight into the goal pose (a new morning: nobody saw it move).
 func snap_to_goals() -> void:
+	_lay_shape = goals
 	_targets_from(goals)
 	_smooth_targets()
 	_lay_over_shapes()
@@ -238,20 +278,31 @@ func snap_to_goals() -> void:
 
 ## ---- goal shapes (all world space) -------------------------------------------
 
-## Loose, swimming or hovering: straight out of the crown along axis, splayed
-## by spread toward out (the arm's own side of the crown), with a slow wave
-## running down it and the tip rolled back on itself.
+## Loose, swimming or hovering: out of the crown along axis, splayed by spread toward out (the
+## arm's own side of the crown) — never a straight line: two slow waves run down it toward the
+## tip, growing as the arm thins. The sideways one is shared round the crown (neighbours lean
+## the same way, as in one current, so they do not swing into each other); the in-and-out one
+## is the arm's own, at its own tempo. The tip rolls into a spiral (curl), in the joints
+## themselves (_lay_over_shapes), slowly opening and closing.
 func goals_spread(axis: Vector3, out: Vector3, spread: float, wave_amp: float, phase: float, curl: float) -> void:
 	var start := points[0]
-	var dir := (axis + out * spread).normalized()
 	var side := axis.cross(out).normalized()
+	var own := phase * _tempo
+	# it opens and closes a little on its own, and leans slowly to one side and back
+	var open := spread * (1.0 + 0.25 * sway * sin(own * 0.23 + _ph_b))
+	var lean := 0.1 * sway * minf(spread * 4.0, 1.0) * sin(phase * 0.17 + index * 0.45)
+	var dir := (axis + out * open + side * lean).normalized()
+	var amp := wave_amp * length / 26.0 * sway
+	var shared0 := phase + index * 0.45
+	var mine0 := own * 0.6 + _ph_a
 	for i in points.size():
-		var t := along[i] / length
-		var wave := side * sin(phase - t * 3.0) + out * 0.5 * cos(phase * 0.7 - t * 2.5)
-		var g := start + dir * along[i] + wave * wave_amp * pow(t, 2.0)
-		if t > 0.6: # the last part rolls back on itself
-			g += (out - dir * 0.5) * curl * pow((t - 0.6) / 0.4, 2.0) * length * 0.2
-		goals[i] = g
+		var t := _frac[i]
+		var shared := shared0 - t * 4.2
+		var mine := mine0 - t * 2.6
+		goals[i] = start + dir * along[i] + (side * sin(shared) + out * (0.6 * sin(mine) + 0.35 * cos(shared * 0.6 + _ph_b))) * (amp * _swell[i])
+	idle_curl = curl * (0.75 + 0.25 * sin(own * 0.31 + _ph_a))
+	var round_it := _ph_b + own * 0.05 # the way the spiral rolls drifts round the arm
+	_curl_world = out * cos(round_it) + side * sin(round_it) * 0.8 - dir * 0.2
 
 ## m the wrapped shape is held off the stone: on a lumpy rock the measured
 ## shape rounds off the bumps.
@@ -263,6 +314,7 @@ const WRAP_CLEARANCE := 0.8
 ## (height, angle) -> m gives the rock's real surface, e1/e2 the frame its
 ## angles are measured in.
 func goals_wrap_column(center: Vector3, up: Vector3, e1: Vector3, e2: Vector3, rock_radius: Callable, turn: float, pitch: float, root_pitch: float, angle_offset: float) -> void:
+	idle_curl = 0.0
 	var start := points[0]
 	var rel := start - center
 	var a := atan2(rel.dot(e2), rel.dot(e1)) + angle_offset
@@ -288,6 +340,7 @@ func goals_wrap_column(center: Vector3, up: Vector3, e1: Vector3, e2: Vector3, r
 ## Lying on a flat surface (the sea floor, a rock shelf): spirals outward from
 ## the root along the plane, the tip curling round.
 func goals_wrap_plane(origin: Vector3, normal: Vector3, out: Vector3, curl: float) -> void:
+	idle_curl = 0.0
 	var start := points[0]
 	var flat_out := (out - normal * out.dot(normal)).normalized()
 	var pos := start - normal * (start - origin).dot(normal)
@@ -301,6 +354,7 @@ func goals_wrap_plane(origin: Vector3, normal: Vector3, out: Vector3, curl: floa
 ## Aimed at a point: a shallow arc from the root to the target, bowed
 ## toward bow.
 func goals_reach(target: Vector3, bow: Vector3) -> void:
+	idle_curl = 0.0
 	var start := points[0]
 	var span := minf(start.distance_to(target), length)
 	for i in points.size():
@@ -311,7 +365,11 @@ func goals_reach(target: Vector3, bow: Vector3) -> void:
 ## the tip's end back toward the body: the distal arm lies along the route —
 ## as much of it as 60 % of the arm can cover — and the rest of the arm comes
 ## straight from the crown to where the route starts.
-func goals_path(path: PackedVector3Array) -> void:
+## bow (a unit vector, or ZERO): the arm is usually longer than the way to the route; with
+## a bow its spare length bellies out that way in one arc, instead of buckling wherever the
+## joints let it (and into the arms beside it).
+func goals_path(path: PackedVector3Array, bow := Vector3.ZERO) -> void:
+	idle_curl = 0.0
 	var start := points[0]
 	var walked := PackedFloat32Array([0.0])
 	for j in range(1, path.size()):
@@ -319,17 +377,31 @@ func goals_path(path: PackedVector3Array) -> void:
 	var wrap := minf(walked[-1], length * 0.6)
 	var join := _point_on(path, walked, wrap)
 	var s0 := maxf(length - wrap, 1.0)
+	var belly := Vector3.ZERO
+	if bow != Vector3.ZERO:
+		# a half-wave arc s0 long over a chord c is about (2c/pi) * sqrt(s0/c - 1) deep
+		# (bow's own length scales it)
+		var c := maxf(start.distance_to(join), 1.0)
+		if s0 > c:
+			belly = bow * minf(c * 0.6366 * sqrt(s0 / c - 1.0), s0 * 0.45)
 	_path_from = -1
 	for i in points.size():
 		var from_tip := length - along[i]
 		if from_tip <= wrap and _path_from < 0:
 			_path_from = i
-		goals[i] = _point_on(path, walked, from_tip) if from_tip <= wrap else start.lerp(join, along[i] / s0)
+		if from_tip <= wrap:
+			goals[i] = _point_on(path, walked, from_tip)
+		else:
+			var u := along[i] / s0
+			# the belly sits toward the far end: the stiff base leaves the crown nearly
+			# straight, the supple outer arm does the turning back
+			goals[i] = start.lerp(join, u) + belly * sin(PI * pow(u, BOW_SKEW))
 
 ## The whole arm along a path, root first: every point of the arm at the same
 ## fraction of the path as of its own length (no straight stretch from the
 ## body: round a thin pillar the arm winds from where it leaves the body).
 func goals_follow(path: PackedVector3Array) -> void:
+	idle_curl = 0.0
 	var walked := PackedFloat32Array([0.0])
 	for j in range(1, path.size()):
 		walked.append(walked[-1] + path[j].distance_to(path[j - 1]))
@@ -349,24 +421,45 @@ func simulate(delta: float) -> void:
 	if root().distance_to(points[0]) > TELEPORT:
 		snap_to_goals()
 		return
-	var chain := goals
+	# The shape it goes for: its goals (left as the Kraken laid them: a loose arm's are only
+	# laid out afresh every other frame), with its keeping clear of the other arms laid over
+	# them, fading by itself.
+	var shape := goals
+	if avoid_live:
+		shape = goals.duplicate()
+		var fade := exp(-AVOID_FADE * delta)
+		var most := 0.0
+		for i in range(1, shape.size()):
+			var give := avoid[i]
+			shape[i] += give
+			avoid[i] = give * fade
+			most = maxf(most, give.length_squared())
+		avoid_live = most > 0.01
+	_lay_shape = shape
+	var chain := shape
 	if inertia > 0.0:
-		chain = goals.duplicate()
+		# the water holds it back: the heavy base goes with the body, the thin end trails most
+		chain = shape.duplicate()
 		for i in chain.size():
-			chain[i] = goals[i].lerp(points[i], inertia)
+			chain[i] = shape[i].lerp(points[i], minf(inertia * _drag[i], 0.95))
 	_targets_from(chain)
 	_smooth_targets()
 	_lay_over_shapes()
 	var before_bend := _bend.duplicate()
 	var tip_before := _pos[_n]
-	var pos_before := _pos.duplicate()
-	# Critically damped springs: ease in, ease out, never overshoot. The
-	# lighter tip answers a little quicker than the heavy base.
+	var pos_before := _pos.duplicate() if limit_whole_arm else _pos
+	# Damped springs: ease in, ease out. The lighter tip answers a little quicker than the
+	# heavy base; an arm with a job never overshoots, a loose one (soft) gives a little at its
+	# thin end and swings back.
 	for k in _n:
-		var w := response * lerpf(0.8, 1.3, float(k) / maxf(_n - 1, 1))
-		var acc := (_target[k] - _bend[k]) * (w * w) - _vel[k] * (2.0 * w)
+		var u := float(k) / maxf(_n - 1, 1)
+		var w := response * lerpf(0.8, 1.3, u)
+		var damp := 2.0 * w * (1.0 - 0.3 * u * u) if soft else 2.0 * w
+		var acc := (_target[k] - _bend[k]) * (w * w) - _vel[k] * damp
 		_vel[k] = (_vel[k] + acc * delta).limit_length(max_joint_speed)
-		_bend[k] = (_bend[k] + _vel[k] * delta).limit_length(_limit[k])
+		# a joint bent past its limit (it gave against the stone, or held on tight a moment
+		# ago) eases back inside it at its own speed: clamped at once, the arm would jump
+		_bend[k] = (_bend[k] + _vel[k] * delta).limit_length(maxf(_limit[k], _bend[k].length() - max_joint_speed * delta))
 	_rebuild()
 	if seek_tip > 0.0 and not pin_tip:
 		_pin_tip_to(tip_target, 1.0 - exp(-seek_tip * delta))
@@ -397,11 +490,13 @@ func simulate(delta: float) -> void:
 				_bend[k] = before_bend[k].lerp(_bend[k], scale)
 				_vel[k] *= scale
 			_rebuild()
-	_clear_of_stone()
+	_clear_of_stone(max_joint_speed * STONE_SPEED * delta)
 
 ## Root to tip: a joint whose next point lies in the stone (keep_out) turns to
 ## aim at where that point would be clear, and the rest of the arm follows.
-func _clear_of_stone() -> void:
+## max_turn > 0: no joint turns more than that (radians) for it in one go — an arm wound
+## round the rock swings a long way for a small turn at its base, and would jump.
+func _clear_of_stone(max_turn := 0.0) -> void:
 	if not keep_out.is_valid():
 		return
 	var xf := skeleton.global_transform
@@ -417,7 +512,9 @@ func _clear_of_stone() -> void:
 		if want.length_squared() < 1e-8:
 			continue
 		# against the stone a joint gives more than its usual bend
-		_bend[k] = _swing(before.transposed() * want.normalized()).limit_length(minf(_limit[k] * STONE_GIVE, PI * 0.6))
+		var clear := _swing(before.transposed() * want.normalized()).limit_length(minf(_limit[k] * STONE_GIVE, PI * 0.6))
+		_bend[k] = clear if max_turn <= 0.0 else _bend[k].move_toward(clear, max_turn)
+		_local_fresh = false
 		for j in range(k, _n):
 			var b := _base if j == 0 else _frames[j - 1] * _rest_local[j]
 			_frames[j] = b * _bend_basis(_bend[j])
@@ -433,11 +530,12 @@ func _lay_on_goals(from: int, amount := 1.0) -> void:
 	var inv := skeleton.global_transform.affine_inverse()
 	for k in range(maxi(from, 0), _n):
 		var before := _base if k == 0 else _frames[k - 1] * _rest_local[k]
-		var want := inv * goals[k + 1] - _pos[k]
+		var want := inv * _lay_shape[k + 1] - _pos[k]
 		if want.length_squared() < 1e-8:
 			continue
 		var b := _swing(before.transposed() * want.normalized()).limit_length(_limit[k])
 		_bend[k] = _bend[k].lerp(b, amount)
+		_local_fresh = false
 		_vel[k] = Vector2.ZERO
 		_frames[k] = before * _bend_basis(_bend[k])
 		_pos[k + 1] = _pos[k] + _frames[k].y * _segments[k]
@@ -480,12 +578,31 @@ func _smooth_targets() -> void:
 ## The shapes that are not about reaching a point: the rolled tip ahead of a
 ## reach's bend front, and the coil round a held body.
 func _lay_over_shapes() -> void:
-	for k in _n:
-		var mid := along[k] + _segments[k] * _world * 0.5
-		if curl_from >= 0.0 and mid > curl_from:
-			_target[k] = Vector2(minf(curl_rate * _segments[k] * _world, _limit[k]), 0.0)
-		elif reach_front < 1.0 and mid > maxf(reach_front, 0.5) * length:
-			_target[k] = Vector2(_limit[k] * 0.45, 0.0) # the far half stays rolled until the bend arrives
+	if curl_from >= 0.0 or reach_front < 1.0:
+		for k in _n:
+			var mid := along[k] + _segments[k] * _world * 0.5
+			if curl_from >= 0.0 and mid > curl_from:
+				_target[k] = Vector2(minf(curl_rate * _segments[k] * _world, _limit[k]), 0.0)
+			elif reach_front < 1.0 and mid > maxf(reach_front, 0.5) * length:
+				_target[k] = Vector2(_limit[k] * 0.45, 0.0) # the far half stays rolled until the bend arrives
+	if idle_curl > 0.0 and curl_from < 0.0 and reach_front >= 1.0:
+		# a loose tip rolls into a spiral: each joint past the middle bends a little more than
+		# the one before it, all the same way round (toward _curl_world, in the joint's frame)
+		var first := -1
+		var bend_way := Vector2.ZERO
+		for k in _n:
+			var e := ((along[k] + _segments[k] * _world * 0.5) / length - 0.5) / 0.5
+			if e <= 0.0:
+				continue
+			if first < 0:
+				first = k
+				var before := _base if k == 0 else _frames[k - 1] * _rest_local[k]
+				var d := before.transposed() * (skeleton.global_basis.inverse() * _curl_world)
+				bend_way = Vector2(d.z, -d.x)
+				if bend_way.length_squared() < 1e-8:
+					return
+				bend_way = bend_way.normalized()
+			_target[k] = (_target[k] + bend_way * _limit[k] * idle_curl * 0.9 * e * e).limit_length(_limit[k])
 
 ## Rebuild the chain from the joints' bends (skeleton space, then world).
 func _rebuild() -> void:
@@ -493,12 +610,16 @@ func _rebuild() -> void:
 	var p := _root_origin
 	_pos[0] = p
 	points[0] = xf * p
+	var frame := _parent_basis
 	for k in _n:
-		var before := _base if k == 0 else _frames[k - 1] * _rest_local[k]
-		_frames[k] = before * _bend_basis(_bend[k])
-		p += _frames[k].y * _segments[k]
+		var local := _rest_local[k] * _bend_basis(_bend[k]) # kept: it is the bone's pose (apply_to_skeleton)
+		_local[k] = local
+		frame = frame * local
+		_frames[k] = frame
+		p += frame.y * _segments[k]
 		_pos[k + 1] = p
 		points[k + 1] = xf * p
+	_local_fresh = true
 
 ## Bring the tip onto a world point by turning the last few joints (cyclic
 ## coordinate descent), each within its limit. amount 1 = all the way now;
@@ -509,12 +630,25 @@ func _rebuild() -> void:
 func _pin_tip_to(target: Vector3, amount: float) -> void:
 	var t := skeleton.global_transform.affine_inverse() * target
 	var distal := mini(pin_joints, PIN_DISTAL)
+	var far_end := maxi(_n - distal, 0)
+	var lowest := _n
 	for k in range(_n - distal - 1, maxi(_n - pin_joints, 0) - 1, -1):
 		_turn_tip_toward(k, t, amount * PIN_BASE_EASE)
+		lowest = k
 	for _it in (2 if amount >= 1.0 else 1):
-		for k in range(_n - 1, maxi(_n - distal, 0) - 1, -1):
+		if lowest < _n:
+			_rebuild_from(lowest) # the joints below have turned: bring the rest of the chain after them
+		for k in range(_n - 1, far_end - 1, -1):
 			_turn_tip_toward(k, t, amount)
+		lowest = mini(lowest, far_end)
+	_rebuild_from(lowest)
+	var xf := skeleton.global_transform
+	for k in range(lowest, _n + 1):
+		points[k] = xf * _pos[k]
 
+## Turn joint k so the tip swings toward t. Only the joint's own frame and the tip are moved
+## here (turning a joint carries everything past it round rigidly); the joints in between are
+## brought after by _rebuild_from, once per pass — not the whole chain again for every joint.
 func _turn_tip_toward(k: int, t: Vector3, amount: float) -> void:
 	var to_tip := _pos[_n] - _pos[k]
 	var to_target := t - _pos[k]
@@ -532,11 +666,25 @@ func _turn_tip_toward(k: int, t: Vector3, amount: float) -> void:
 	var turned := Basis(turn) * _frames[k]
 	var before := _base if k == 0 else _frames[k - 1] * _rest_local[k]
 	_bend[k] = _swing((before.transposed() * turned.y).normalized()).limit_length(_limit[k])
+	_local_fresh = false
 	_vel[k] *= 0.5
-	_rebuild()
+	var now := before * _bend_basis(_bend[k])
+	_pos[_n] = _pos[k] + (now * _frames[k].transposed()) * to_tip
+	_frames[k] = now
+
+## Rebuild the chain past joint `from` (skeleton space only).
+func _rebuild_from(from: int) -> void:
+	for k in range(from, _n):
+		var before := _base if k == 0 else _frames[k - 1] * _rest_local[k]
+		_frames[k] = before * _bend_basis(_bend[k])
+		_pos[k + 1] = _pos[k] + _frames[k].y * _segments[k]
 
 ## Pose the bones from the joints' bends.
 func apply_to_skeleton() -> void:
+	if _local_fresh:
+		for k in _n:
+			skeleton.set_bone_pose_rotation(bones[k], _local[k].get_rotation_quaternion())
+		return
 	for k in _n:
 		skeleton.set_bone_pose_rotation(bones[k], (_rest_local[k] * _bend_basis(_bend[k])).get_rotation_quaternion())
 

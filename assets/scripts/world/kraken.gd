@@ -144,6 +144,10 @@ enum FishPhase { CHASE, REEL, DRAG, SETTLE, FEED } # a giant fish in its waters:
 @export var regrab_cooldown := 5.0 # s after the prey fights free before an arm reaches again
 @export var recoil_time := 2.5 # s an arm that lost its grip flails before settling
 @export var arm_cull_distance := 450.0 # m from the camera beyond which the arms are left still
+## How much the loose arms wander and wave on their own (0 = straight, stiff arms).
+@export_range(0.0, 2.0, 0.05) var arm_sway := 1.0
+## The loose arms ease aside wherever they lie in another arm (see _untangle).
+@export var arms_keep_apart := true
 
 @export_group("Holding the player")
 ## Where the prey is held, in the body's space: in front of the crown.
@@ -174,8 +178,13 @@ enum FishPhase { CHASE, REEL, DRAG, SETTLE, FEED } # a giant fish in its waters:
 ## reach from where it is (route included) are taken: fewer, firm holds rather
 ## than arms stretched short of a spot and through her.
 @export_range(0.5, 1.0, 0.01) var ship_grip_reach := 0.9
+@export var ship_seek := 3.0 # 1/s how keenly an arm brings its tip to its route on her (0 = left to its shape alone)
 @export var ship_grip_catch := 2.0 # m (model units) from its spot at which a reaching tip takes hold
 @export var ship_grab_depth := 24.0 # m its crown waits beneath the hull
+## An arm is longer than the way up to her: once it has hold, its spare length bellies out
+## to its own side in one arc (1 = all of it, 0 = left to buckle where it will, into the
+## arms beside it). Only once it holds: on the way up a bowed arm does not get there.
+@export_range(0.0, 1.0, 0.05) var ship_arm_bow := 1.0
 ## m/s rising after a ship — its one burst of real speed; it aims where she is going
 @export var ship_chase_speed := 9.0
 @export var ship_brake := 0.6 # 1/s: once an arm grips, her speed is dragged down this fast
@@ -348,11 +357,22 @@ var _sated := false # fed today: the player may pass
 var _guard_r := -1.0 # cached reach of the guard area from the perch
 var _anchor_arms: Array[int] = [] # free arms holding the rock while it wrestles a fish
 var _body_shape := SphereShape3D.new()
+var _body_query: PhysicsShapeQueryParameters3D
 var _fish_rids: Array[RID] = []
+var _fish_rids_at := 0.0 # when the fishes' colliders are looked up again
+var _guard_shapes: Array[CollisionShape3D] = [] # the guard area's shapes, found once
+var _guard_found := false
+var _asleep_far := false # perched or feeding with the camera far off: nothing of it is worked
+var _wrap_lane := PackedInt32Array() # per arm: its lane round the rock on its side of the body, 0 = innermost
+var _wrap_lanes := PackedInt32Array() # per arm: how many arms wind that way
+var _grip_routes: Array = [] # her hand-placed grip spots: [spot, its route (her space), the route's length]
+var _grip_routes_ship := 0 # the ship those were laid for (instance id)
+var _grip_want := 0 # arms it means to get onto her
 
 # The rock's measured shape (see _measure_rock).
 const ROCK_LEVELS := 46
 const SHIP_CLEARANCE := 0.4 # m between an arm's skin and her plating on its route
+const GRIP_APART := 3.0 # m (her space) two arms' grip spots are apart, at least
 const HULL_BUDGET_USEC := 2000 # time a frame may spend measuring a ship
 const ROCK_PUSH_SPEED := 35.0 # m/s a held fish is moved out of the rock at most
 const ROCK_ANGLES := 48
@@ -442,8 +462,15 @@ func _reset() -> void:
 	_cooldown = 0.0
 	_velocity = Vector3.ZERO
 	_thrown = false
+	_crawling = false
+	_feet.clear()
+	_settle_from = Transform3D()
+	_anchor_arms.clear()
+	_attacking = false
 	for arm in _arms:
 		arm.set_role(KrakenArm.Role.FREE)
+		arm.avoid.fill(Vector3.ZERO)
+		arm.avoid_live = false
 	_stop(_presence_loop)
 	if perch:
 		global_transform = _perch_pose()
@@ -510,6 +537,8 @@ func _physics_process(delta: float) -> void:
 		_update_hold(delta)
 	_update_arms(delta)
 	_warm_hull()
+	if _asleep_far:
+		return # still on its rock with nobody near enough to see: nothing of it need move
 	_track_breach(delta)
 	_breathe()
 	_mantle_follow(delta)
@@ -524,6 +553,10 @@ func _track_breach(delta: float) -> void:
 			_breach = BreachSplash.new()
 			_breach.name = &'BreachSplash'
 			add_child(_breach)
+	# deeper than its longest arm could reach up: nothing of it can break the surface
+	if _water is Node3D and not _arms.is_empty() \
+			and global_position.y + _arms[0].length + body_radius * _scale * 3.0 < (_water as Node3D).global_position.y - 8.0:
+		return
 	var n := 1 + _arms.size() * 2
 	if _breach_points.size() != n:
 		_breach_points.resize(n)
@@ -558,7 +591,7 @@ func _process_perched(_delta: float) -> void:
 	if _ship_kept:
 		_carry_kept_ship()
 		return # it has what it wanted
-	if _in_guard_area(_player.global_position) or (not _sated and _fish_in_area() != null):
+	if (not _player_ignored and _in_guard_area(_player.global_position)) or (not _sated and _fish_in_area() != null):
 		_set_state(State.WAKING)
 		_play(_wake_sound)
 		_play(_presence_loop)
@@ -593,8 +626,8 @@ func _process_hunt(delta: float) -> void:
 		if fish:
 			_begin_fish(fish)
 			return
-	if not _holding and _player_beyond_leash():
-		_give_up()
+	if not _holding and (_player_beyond_leash() or _player_ignored):
+		_give_up() # out of its waters, or it has had its fill: home
 		return
 	var ship := _ship_under_player()
 	if ship and not _holding and not _player_ignored:
@@ -658,56 +691,16 @@ func _process_boat(delta: float) -> void:
 			_swim_toward(below, ship_chase_speed, Vector3.UP, delta)
 			if global_position.distance_to(_ship.global_position) < (reach_range + ship_grab_depth) * _scale:
 				_assign_ship_arms()
-			var gripping := 0
-			var assigned := 0
-			for arm in _arms:
-				if arm.role != KrakenArm.Role.BOAT:
-					continue
-				assigned += 1
-				var attach := _ship.to_global(arm.hull_path[0])
-				# out of reach, a tip aimed at the spot would be pulled short on the
-				# straight line toward it — through her. It lets go instead and
-				# waits under her keel (the foot of its route, outside her)
-				var in_reach := arm.root().distance_to(attach) < arm.length * 0.97
-				if arm.gripped and not in_reach:
-					arm.gripped = false
-				if arm.gripped:
-					arm.tip_target = attach
-					gripping += 1
-					continue
-				# it never goes through her: first up to the foot of its route,
-				# outside under her keel; then its tip climbs the route itself — up
-				# her side and over onto the spot — the arm lying along what it has
-				# climbed (a straight line from below to her deck would cut her)
-				var foot := _ship.to_global(arm.hull_path[-1])
-				var route_len := _route_length(arm.hull_path)
-				if arm.climb < 0.0:
-					var reach := arm.tip_target + ship_vel * delta
-					# quick while far below her, the reach speed for the last stretch
-					var quick := reach_speed * lerpf(1.0, 2.5, smoothstep(15.0, 60.0, reach.distance_to(foot)))
-					arm.tip_target = _clamp_reach(arm, reach.move_toward(foot, quick * delta))
-					if arm.tip().distance_to(foot) < ship_grip_catch * _scale and in_reach:
-						arm.climb = 0.0
-				else:
-					if not in_reach:
-						arm.climb = -1.0 # she has drifted off: down to the foot of it again
-					else:
-						arm.climb = minf(arm.climb + reach_speed * delta, route_len)
-					arm.tip_target = _ship.to_global(_route_point(arm.hull_path, route_len - maxf(arm.climb, 0.0)))
-				# at the spot: it takes hold (the pinned tip settles it exactly)
-				if arm.climb >= route_len - 0.01 or (arm.climb >= 0.0 and arm.tip().distance_to(attach) < ship_grip_catch * _scale):
-					arm.gripped = true
-					if _first_grip < 0.0:
-						_first_grip = _time
-						_play(_hull_sound)
-						_shake_near(catch_shake, 80.0)
+			var arms_on := _reach_ship_arms(delta)
+			var gripping := arms_on.x
+			var assigned := arms_on.y
 			if gripping > 0:
 				# one arm on her is an anchor: she is dragged to a stop, engine or not
 				_ship.apply_central_force(-ship_vel * _ship.mass * ship_brake)
-			if assigned > 0 and (gripping == assigned or (_first_grip >= 0.0 and _time - _first_grip > ship_all_arms_wait)):
+			if assigned > 0 and ((gripping == assigned and assigned >= _grip_want) or (_first_grip >= 0.0 and _time - _first_grip > ship_all_arms_wait)):
 				_begin_shake()
 		BoatPhase.SHAKE:
-			_hold_ship_arms()
+			_reach_ship_arms(delta) # those that have her hold on; the late ones still climb to their spots
 			var t := clampf(_state_time / maxf(shake_time, 0.1), 0.0, 1.0)
 			var amp := deg_to_rad(lerpf(shake_roll.x, shake_roll.y, t))
 			var rock := sin(_state_time * TAU * shake_frequency)
@@ -722,7 +715,7 @@ func _process_boat(delta: float) -> void:
 				_state_time = 0.0
 				_play(_hull_sound)
 		BoatPhase.FLIP:
-			_hold_ship_arms()
+			_reach_ship_arms(delta)
 			var t := clampf(_state_time / maxf(flip_time, 0.1), 0.0, 1.0)
 			var start := deg_to_rad(shake_roll.y) * _ship_roll_sign
 			_ship_roll = lerpf(start, PI * _ship_roll_sign, t * t * (3.0 - 2.0 * t))
@@ -753,6 +746,56 @@ func _process_boat(delta: float) -> void:
 				_settle_duration = settle_time
 				_set_state(State.RETURN)
 				_state_time = 0.0
+
+## The arms sent for the ship make their way onto her: up to the foot of their route under
+## her keel, then up the route to their spot, where they take hold. It goes on while it
+## already shakes her — an arm that was late still gets its grip. Returns (gripping, sent).
+func _reach_ship_arms(delta: float) -> Vector2i:
+	var gripping := 0
+	var assigned := 0
+	var ship_vel := _ship.linear_velocity
+	for arm in _arms:
+		if arm.role != KrakenArm.Role.BOAT:
+			continue
+		assigned += 1
+		var attach := _ship.to_global(arm.hull_path[0])
+		# out of reach, a tip aimed at the spot would be pulled short on the
+		# straight line toward it — through her. It lets go instead and
+		# waits under her keel (the foot of its route, outside her)
+		var in_reach := arm.root().distance_to(attach) < arm.length * 0.97
+		if arm.gripped and not in_reach:
+			arm.gripped = false
+		if arm.gripped:
+			arm.tip_target = attach
+			gripping += 1
+			continue
+		# it never goes through her: first up to the foot of its route,
+		# outside under her keel; then its tip climbs the route itself — up
+		# her side and over onto the spot — the arm lying along what it has
+		# climbed (a straight line from below to her deck would cut her)
+		var foot := _ship.to_global(arm.hull_path[-1])
+		var route_len := _route_length(arm.hull_path)
+		if arm.climb < 0.0:
+			var reach := arm.tip_target + ship_vel * delta
+			# quick while far below her, the reach speed for the last stretch
+			var quick := reach_speed * lerpf(1.0, 2.5, smoothstep(15.0, 60.0, reach.distance_to(foot)))
+			arm.tip_target = _clamp_reach(arm, reach.move_toward(foot, quick * delta))
+			if arm.tip().distance_to(foot) < ship_grip_catch * _scale and in_reach:
+				arm.climb = 0.0
+		else:
+			if not in_reach:
+				arm.climb = -1.0 # she has drifted off: down to the foot of it again
+			else:
+				arm.climb = minf(arm.climb + reach_speed * delta, route_len)
+			arm.tip_target = _ship.to_global(_route_point(arm.hull_path, route_len - maxf(arm.climb, 0.0)))
+		# at the spot: it takes hold (the pinned tip settles it exactly)
+		if arm.climb >= route_len - 0.01 or (arm.climb >= 0.0 and arm.tip().distance_to(attach) < ship_grip_catch * _scale):
+			arm.gripped = true
+			if _first_grip < 0.0:
+				_first_grip = _time
+				_play(_hull_sound)
+				_shake_near(catch_shake, 80.0)
+	return Vector2i(gripping, assigned)
 
 ## Swim home, then ease back onto the rock.
 func _process_return(delta: float) -> void:
@@ -1046,13 +1089,8 @@ func _move_body(target: Vector3) -> void:
 	if motion.length_squared() < 1e-10:
 		return
 	var space := get_world_3d().direct_space_state
-	_body_shape.radius = body_radius * _scale
-	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = _body_shape
-	query.collision_mask = 1
-	query.exclude = _fish_bodies() # fish are bodies to grab, not walls
 	var center := _skeleton.global_transform * body_center # in the model's units
-	query.transform = Transform3D(Basis.IDENTITY, center)
+	var query := _body_query_at(center)
 	var touching := space.get_rest_info(query)
 	if not touching.is_empty():
 		var n: Vector3 = touching.normal
@@ -1076,17 +1114,23 @@ func _move_body(target: Vector3) -> void:
 		var rest := motion * (1.0 - fractions[0])
 		global_position += rest - n * minf(rest.dot(n), 0.0)
 
+## The sphere round its head and mantle, as a query against the world (layer 1), at center.
+func _body_query_at(center: Vector3) -> PhysicsShapeQueryParameters3D:
+	if _body_query == null:
+		_body_query = PhysicsShapeQueryParameters3D.new()
+		_body_query.shape = _body_shape
+		_body_query.collision_mask = 1
+	_body_shape.radius = body_radius * _scale
+	_body_query.exclude = _fish_bodies() # fish are bodies to grab, not walls
+	_body_query.motion = Vector3.ZERO
+	_body_query.transform = Transform3D(Basis.IDENTITY, center)
+	return _body_query
+
 ## Turning swings its head and mantle round the crown, which no move check
 ## sees: if that has left them in rock, they are eased back out.
 func _push_body_out(delta: float) -> void:
-	_body_shape.radius = body_radius * _scale
-	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = _body_shape
-	query.collision_mask = 1
-	query.exclude = _fish_bodies()
 	var center := _skeleton.global_transform * body_center
-	query.transform = Transform3D(Basis.IDENTITY, center)
-	var hit := get_world_3d().direct_space_state.get_rest_info(query)
+	var hit := get_world_3d().direct_space_state.get_rest_info(_body_query_at(center))
 	if hit.is_empty():
 		return
 	var n: Vector3 = hit.normal
@@ -1095,9 +1139,12 @@ func _push_body_out(delta: float) -> void:
 	if depth > 0.0:
 		global_position += n * minf(depth, 15.0 * delta)
 
-## The giant fishes' own colliders (they sit on the world layer too).
+## The giant fishes' own colliders (they sit on the world layer too). Fish come and go, so
+## they are looked up again every couple of seconds, not once and not every frame.
 func _fish_bodies() -> Array[RID]:
-	if _fish_rids.is_empty():
+	if _time >= _fish_rids_at:
+		_fish_rids_at = _time + 2.0
+		_fish_rids.clear()
 		for fish in get_tree().get_nodes_in_group(&'giant_fish'):
 			for body: CollisionObject3D in fish.find_children("*", "CollisionObject3D", true, false):
 				_fish_rids.append(body.get_rid())
@@ -1144,6 +1191,8 @@ func _begin_fish(fish: Node3D) -> void:
 
 func _process_fish(delta: float) -> void:
 	if not is_instance_valid(_fish):
+		_fish = null # gone: the arms that were after it let go
+		_release_fish_arms()
 		_set_state(State.HUNT)
 		return
 	match _fish_phase:
@@ -1156,6 +1205,7 @@ func _process_fish(delta: float) -> void:
 ## After the fish: close on the nearest part of it, lashing whenever it is in reach.
 func _fish_chase(delta: float) -> void:
 	if _fish.is_seized(): # something else got it
+		_release_fish_arms()
 		_set_state(State.HUNT)
 		return
 	_fish_vel = _fish_vel.lerp((_fish.global_position - _fish_last_pos) / maxf(delta, 0.001), minf(delta * 3.0, 1.0))
@@ -1643,7 +1693,7 @@ func _guard_radius() -> float:
 	if _guard_r >= 0.0:
 		return _guard_r
 	_guard_r = 0.0
-	for shape: CollisionShape3D in guard_area.find_children("*", "CollisionShape3D", false, false):
+	for shape in _guard_list():
 		var s := shape.shape
 		var extent := 0.0
 		var scale := shape.global_basis.get_scale()
@@ -1841,37 +1891,74 @@ func _throw_player_off() -> void:
 ## length, laid on her real shape (HullShape) so the arms wrap round her
 ## instead of through her.
 func _assign_ship_arms() -> void:
-	for arm in _arms:
-		if arm.role == KrakenArm.Role.BOAT:
-			return # already done
 	var hull := _hull_shape(_ship)
+	var on_her := 0
 	var free: Array[KrakenArm] = []
 	for arm in _arms:
-		if arm.role == KrakenArm.Role.FREE or arm.role == KrakenArm.Role.RECOIL:
+		if arm.role == KrakenArm.Role.BOAT:
+			on_her += 1
+		elif arm.role == KrakenArm.Role.FREE or arm.role == KrakenArm.Role.RECOIL:
 			free.append(arm)
 	# Grip spots placed by hand win: the children of a node named hall_markers
 	# (empties from Blender) or nodes named KrakenGrip*, on the safe-to-grab
-	# parts of her. Of those, ship_arms spots as far apart as can be.
-	var markers := _pick_grip_spots(_ship_grip_spots(), hull, free)
-	var count := mini(markers.size() if not markers.is_empty() else ship_arms, free.size())
-	for i in count:
-		var x := lerpf(hull.x_min, hull.x_max, lerpf(0.14, 0.86, float(i) / maxf(count - 1, 1)))
-		var side := 0 if i % 2 == 0 else 1
-		var path: PackedVector3Array
-		if markers.is_empty():
-			path = _hull_path(hull, x, side)
-		else:
-			path = _hull_path(hull, markers[i].x, 0 if markers[i].z >= 0.0 else 1, markers[i].y, markers[i])
-		# the arm whose middle is nearest that side of her takes it
-		var world := _ship.to_global(path[path.size() / 2])
-		var best := 0
-		for j in free.size():
-			if free[j].points[free[j].points.size() / 2].distance_to(world) < free[best].points[free[best].points.size() / 2].distance_to(world):
-				best = j
-		var arm := free[best]
-		free.remove_at(best)
-		arm.set_role(KrakenArm.Role.BOAT)
-		arm.hull_path = path
+	# parts of her. Their routes are laid once per ship (they are in her own space).
+	if _grip_routes_ship != _ship.get_instance_id():
+		_grip_routes_ship = _ship.get_instance_id()
+		_grip_routes.clear()
+		for spot in _ship_grip_spots():
+			var path := _hull_path(hull, spot.x, 0 if spot.z >= 0.0 else 1, spot.y, spot)
+			_grip_routes.append([spot, path, _route_length(path)])
+	if _grip_routes.is_empty():
+		# none placed: routes down both sides of her, alternating, spread along her length
+		if on_her > 0:
+			return # already done
+		var count := mini(ship_arms, free.size())
+		_grip_want = count
+		for i in count:
+			var x := lerpf(hull.x_min, hull.x_max, lerpf(0.14, 0.86, float(i) / maxf(count - 1, 1)))
+			_send_arm_to_ship(free, _hull_path(hull, x, 0 if i % 2 == 0 else 1))
+		return
+	# Of the hand-placed spots it takes ship_arms, one arm each, as they come within reach
+	# while it rises under her (from its crown to where the route meets the water, plus the
+	# route itself, within ship_grip_reach of an arm): the easiest first, then each time the
+	# one farthest from those already taken. Spots it cannot reach yet are simply taken later:
+	# it never falls back on a guessed route while she has spots of her own.
+	_grip_want = mini(ship_arms, mini(_grip_routes.size(), _arms.size()))
+	while on_her < _grip_want and not free.is_empty():
+		var best := -1
+		var best_score := -INF
+		for i in _grip_routes.size():
+			var spot: Vector3 = _grip_routes[i][0]
+			var path: PackedVector3Array = _grip_routes[i][1]
+			var need: float = global_position.distance_to(_ship.to_global(path[-1])) + _grip_routes[i][2]
+			if need > free[0].length * ship_grip_reach:
+				continue
+			var apart := INF
+			for arm in _arms:
+				if arm.role == KrakenArm.Role.BOAT:
+					apart = minf(apart, spot.distance_to(arm.hull_path[0]))
+			if apart < GRIP_APART:
+				continue # that spot (or one right beside it) is taken
+			var score := apart if apart < INF else -need
+			if score > best_score:
+				best_score = score
+				best = i
+		if best < 0:
+			return
+		_send_arm_to_ship(free, _grip_routes[best][1])
+		on_her += 1
+
+## One of the free arms goes for the hull along a route: the arm whose middle is nearest it.
+func _send_arm_to_ship(free: Array[KrakenArm], path: PackedVector3Array) -> void:
+	var world := _ship.to_global(path[path.size() / 2])
+	var best := 0
+	for j in free.size():
+		if free[j].points[free[j].points.size() / 2].distance_to(world) < free[best].points[free[best].points.size() / 2].distance_to(world):
+			best = j
+	var arm := free[best]
+	free.remove_at(best)
+	arm.set_role(KrakenArm.Role.BOAT)
+	arm.hull_path = path
 
 ## Length of a route (her local space).
 func _route_length(path: PackedVector3Array) -> float:
@@ -1900,47 +1987,6 @@ func _ship_grip_spots() -> Array[Vector3]:
 	for node in _ship.find_children("KrakenGrip*", "Node3D", true, false):
 		spots.append(_ship.to_local(node.global_position))
 	return spots
-
-## ship_arms of the spots, spread over her: only spots an arm can truly reach
-## from where the kraken is (from its crown to where the route meets the water,
-## plus the route itself, within its length), the one nearest the kraken
-## first, then each time the one farthest from those already taken.
-func _pick_grip_spots(all: Array[Vector3], hull: HullShape, free: Array[KrakenArm]) -> Array[Vector3]:
-	if all.is_empty() or free.is_empty():
-		return all
-	var arm_length := free[0].length
-	var spots: Array[Vector3] = []
-	for spot in all:
-		var path := _hull_path(hull, spot.x, 0 if spot.z >= 0.0 else 1, spot.y, spot)
-		var route := 0.0
-		for i in range(1, path.size()):
-			route += path[i].distance_to(path[i - 1])
-		var need := global_position.distance_to(_ship.to_global(path[-1])) + route
-		if need <= arm_length * ship_grip_reach:
-			spots.append(spot)
-	if spots.size() <= ship_arms:
-		return spots
-	var me := _ship.to_local(global_position)
-	var picked: Array[Vector3] = []
-	var first := 0
-	for i in spots.size():
-		if spots[i].distance_to(me) < spots[first].distance_to(me):
-			first = i
-	picked.append(spots[first])
-	while picked.size() < ship_arms:
-		var best := -1
-		var best_d := -1.0
-		for i in spots.size():
-			if picked.has(spots[i]):
-				continue
-			var d := INF
-			for p in picked:
-				d = minf(d, spots[i].distance_to(p))
-			if d > best_d:
-				best_d = d
-				best = i
-		picked.append(spots[best])
-	return picked
 
 ## The route of one arm onto her, in her local space, tip end first: hooked
 ## over the top of her rail (or resting on a hand-placed grip spot), then over
@@ -2040,6 +2086,7 @@ class HullShape:
 	var _box: AABB
 
 	var ready := false
+	var _meshes: Array = [] # her meshes still to read: [MeshInstance3D, its transform in her space]
 	var _jobs: Array = [] # per surface still to sample: [transform, vertices, indices or null, next triangle]
 	var _verts := PackedVector3Array()
 	var _stage := 0
@@ -2047,7 +2094,7 @@ class HullShape:
 	var _bounds: AABB
 	var _widest: Array[PackedFloat32Array] = [PackedFloat32Array(), PackedFloat32Array()]
 
-	## Only gathers her meshes; build() does the measuring.
+	## Only lists her meshes; build() reads and measures them, a little at a time.
 	func _init(ship: Node3D, box: AABB) -> void:
 		_box = box
 		var to_ship := ship.global_transform.affine_inverse()
@@ -2055,16 +2102,23 @@ class HullShape:
 			var mi := node as MeshInstance3D
 			if mi.mesh == null or not mi.is_visible_in_tree():
 				continue # the physics rig's cells and volumes are hidden meshes
-			var xf := to_ship * mi.global_transform
-			for surface in mi.mesh.get_surface_count():
-				var arrays := mi.mesh.surface_get_arrays(surface)
-				var idx = arrays[Mesh.ARRAY_INDEX]
-				_jobs.append([xf, arrays[Mesh.ARRAY_VERTEX], idx if idx != null and idx.size() > 0 else null, 0])
+			_meshes.append([mi, to_ship * mi.global_transform])
 
 	## Measures on for at most budget microseconds; true once she is done.
 	func build(budget: int) -> bool:
 		var t0 := Time.get_ticks_usec()
 		var over := func() -> bool: return Time.get_ticks_usec() - t0 > budget
+		# 0: her meshes' vertices, one mesh at a time (copying them out is the slow part)
+		while not _meshes.is_empty():
+			var entry: Array = _meshes.pop_back()
+			var mi: MeshInstance3D = entry[0]
+			if is_instance_valid(mi) and mi.mesh:
+				for surface in mi.mesh.get_surface_count():
+					var arrays := mi.mesh.surface_get_arrays(surface)
+					var idx = arrays[Mesh.ARRAY_INDEX]
+					_jobs.append([entry[1], arrays[Mesh.ARRAY_VERTEX], idx if idx != null and idx.size() > 0 else null, 0])
+			if over.call():
+				return false
 		# 1: points over every triangle's whole face, not just its corners: a
 		# big flat plate has its corners far apart, and the slices between
 		# them would read as no hull at all
@@ -2222,6 +2276,9 @@ func _follow_with_ship(delta: float) -> void:
 ## Home with her: she hangs off the rock in its arms, upside down.
 func _carry_kept_ship() -> void:
 	if not is_instance_valid(_ship):
+		_release_ship_arms() # she is gone: nothing left to hold
+		_ship = null
+		_ship_kept = false
 		return
 	var pose := _perch_pose()
 	var out := _perch_out()
@@ -2281,7 +2338,8 @@ func _submerge_ship(under: bool) -> void:
 func _update_arms(delta: float) -> void:
 	var cam := get_viewport().get_camera_3d()
 	var far := cam != null and cam.global_position.distance_to(global_position) > arm_cull_distance
-	if far and (state == State.PERCHED or (state == State.FISH and _fish_phase == FishPhase.FEED)):
+	_asleep_far = far and (state == State.PERCHED or (state == State.FISH and _fish_phase == FishPhase.FEED))
+	if _asleep_far:
 		return # nobody can see it from there
 	for arm in _arms:
 		arm.timer += delta
@@ -2291,11 +2349,17 @@ func _update_arms(delta: float) -> void:
 	if _loose_timer >= loose_swap_time:
 		_pick_loose_arms()
 	_set_arm_goals(delta)
+	if arms_keep_apart:
+		_untangle()
 	for arm in _arms:
 		if _resting_frame(arm):
 			continue
 		var response := arm_response
 		arm.inertia = 0.0
+		arm.sway = arm_sway
+		# a loose arm in open water is soft: it gives a little past its goal and swings back
+		arm.soft = (arm.role == KrakenArm.Role.FREE or arm.role == KrakenArm.Role.RECOIL) \
+				and not _perched_pose_wanted() and not _anchor_arms.has(arm.index)
 		match arm.role:
 			KrakenArm.Role.REACH: response *= reach_response
 			KrakenArm.Role.HOLD: response *= hold_response
@@ -2335,6 +2399,12 @@ func _update_arms(delta: float) -> void:
 		arm.lay_on_path = (arm.role == KrakenArm.Role.BOAT and arm.gripped) or _laid_on_rock(arm)
 		arm.keep_out = _stone_push if _keeps_off_stone(arm) and _stone_check_due(arm) else Callable()
 		arm.lay_rate = 0.5 if _laid_on_rock(arm) else 0.0 # settled home, it eases onto the stone
+		if arm.role == KrakenArm.Role.BOAT and not arm.gripped:
+			# on its way to her: the whole arm eases its tip to where it is headed (aimed
+			# along its goal shape alone, a long arm folded into a short way buckles and
+			# its tip never gets there)
+			arm.seek_tip = ship_seek
+			arm.pin_joints = 20
 		if arm.role == KrakenArm.Role.CRAWL:
 			arm.set_tight(true, 4.0) # crawling it coils right round the stone
 		else:
@@ -2373,6 +2443,12 @@ func _set_arm_goals(_delta: float) -> void:
 	var surface_y := _surface_y(crown)
 	for arm in _arms:
 		if _resting_frame(arm):
+			continue
+		if arm.role == KrakenArm.Role.BOAT and not is_instance_valid(_ship):
+			arm.set_role(KrakenArm.Role.RECOIL) # she is gone
+		# a loose arm in open water changes shape slowly, and its springs are slower still:
+		# its shape is laid out every other frame (the arms take turns)
+		if (arm.role == KrakenArm.Role.FREE or arm.role == KrakenArm.Role.RECOIL) and arm.timer > 0.1 				and (Engine.get_physics_frames() + arm.index) % 2 == 1 				and not _perched_pose_wanted() and not _anchor_arms.has(arm.index):
 			continue
 		var out := arm.root() - crown
 		out = (out - axis * out.dot(axis)).normalized()
@@ -2419,7 +2495,7 @@ func _set_arm_goals(_delta: float) -> void:
 						if route.size() >= 2 and w.y > route[-1].y + 0.5:
 							break
 						route.append(w)
-					arm.goals_path(route)
+					arm.goals_path(route, out * ship_arm_bow) # its spare length bellies out on its own side
 			KrakenArm.Role.CRAWL:
 				_crawl_goals(arm)
 			KrakenArm.Role.FISH:
@@ -2476,6 +2552,122 @@ func _attack_goals(arm: KrakenArm, crown: Vector3, open: float, phase: float) ->
 func _keep_under_surface(arm: KrakenArm, surface_y: float) -> void:
 	for i in arm.goals.size():
 		arm.goals[i].y = minf(arm.goals[i].y, surface_y - 1.5)
+
+## ---- the arms keep clear of each other -------------------------------------------
+## Eight arms from one crown are always in each other's way. A few pairs of them are looked
+## at every frame (each pair several times a second: the arms are slow). Wherever two lie in
+## each other — nearer than their two thicknesses, past the web at the crown — the loose one
+## (or both) is eased aside through its goal (KrakenArm.avoid), so it gives way on its own
+## slow springs, never with a jump. Where they cross outright, the thinner goes over the
+## other, on the side away from the rock (perched) or the body. Arms with a job — reaching,
+## holding, gripping — keep their line; the loose ones go round them.
+const UNTANGLE_PAIRS := 3 # pairs looked at per frame, awake
+const UNTANGLE_GAP := 1.15 # x their two thicknesses: nearer than this they ease apart
+const UNTANGLE_GAIN := 0.25 # of the overlap, per look
+## The first quarter of the arms is left alone: at the crown they are thicker than the ring
+## they grow from has room for (the web), so there they always lie in each other.
+const UNTANGLE_FROM := 0.25
+var _coarse := PackedInt32Array() # the points of an arm that stand for it here: every fourth, past the web
+var _coarse_r := PackedFloat32Array() # the arm's thickness at each
+var _pair_at := 0
+
+func _untangle() -> void:
+	var n := _arms.size()
+	if n < 2:
+		return
+	if _coarse.is_empty():
+		var arm := _arms[0]
+		var i := 1
+		while i < arm.points.size() - 2 and arm.along[i] < arm.length * UNTANGLE_FROM:
+			i += 1
+		while i < arm.points.size() - 1:
+			_coarse.append(i)
+			i += 4
+		_coarse.append(arm.points.size() - 1)
+		for k in _coarse:
+			_coarse_r.append(arm.radius_at(k))
+	var total := n * (n - 1) / 2
+	for _look in (1 if state == State.PERCHED else UNTANGLE_PAIRS):
+		_pair_at = (_pair_at + 1) % total
+		var a := 0
+		var left := _pair_at
+		while left >= n - 1 - a:
+			left -= n - 1 - a
+			a += 1
+		_untangle_pair(_arms[a], _arms[a + 1 + left])
+
+func _untangle_pair(a: KrakenArm, b: KrakenArm) -> void:
+	var a_gives := _gives_way(a)
+	var b_gives := _gives_way(b)
+	if not a_gives and not b_gives:
+		return
+	if a.points.size() != b.points.size():
+		return
+	var last := _coarse.size() - 1
+	# are they anywhere near each other, past the crown?
+	var box_a := AABB(a.points[_coarse[0]], Vector3.ZERO)
+	var box_b := AABB(b.points[_coarse[0]], Vector3.ZERO)
+	for k in range(1, last + 1):
+		box_a = box_a.expand(a.points[_coarse[k]])
+		box_b = box_b.expand(b.points[_coarse[k]])
+	if not box_a.grow(_coarse_r[0] * 2.5).intersects(box_b):
+		return
+	var cap := a.root_radius * 5.0
+	for i in last:
+		var a0 := a.points[_coarse[i]]
+		var a1 := a.points[_coarse[i + 1]]
+		for j in last:
+			var b0 := b.points[_coarse[j]]
+			var b1 := b.points[_coarse[j + 1]]
+			var rr := (_coarse_r[i] + _coarse_r[i + 1] + _coarse_r[j] + _coarse_r[j + 1]) * 0.5 * UNTANGLE_GAP
+			var near := Geometry3D.get_closest_points_between_segments(a0, a1, b0, b1)
+			var gap := near[0] - near[1]
+			var d := gap.length()
+			if d >= rr:
+				continue
+			var way: Vector3 # the way a moves (b the other way)
+			var a_share := 0.5 if a_gives and b_gives else (1.0 if a_gives else 0.0)
+			if d > rr * 0.3:
+				way = gap / d # side by side: straight apart
+			else:
+				# crossing outright: one goes over the other — the thinner, on the outer side
+				way = (a1 - a0).cross(b1 - b0)
+				if way.length_squared() < 0.01:
+					way = a.root() - b.root() # lying along each other
+				way = way.normalized()
+				var a_over := a_gives and (not b_gives or i >= j)
+				var outer := near[0] - _inner_point(near[0])
+				if (way.dot(outer) < 0.0) == a_over:
+					way = -way
+				a_share = 1.0 if a_over else 0.0
+			var push := (rr - d) * UNTANGLE_GAIN
+			if a_share > 0.0:
+				_ease_aside(a, _coarse[i], _coarse[i + 1], way * (push * a_share), cap)
+			if a_share < 1.0:
+				_ease_aside(b, _coarse[j], _coarse[j + 1], way * (-push * (1.0 - a_share)), cap)
+
+## A loose arm gives way; one with a job (or holding the rock) keeps its line.
+func _gives_way(arm: KrakenArm) -> bool:
+	return (arm.role == KrakenArm.Role.FREE or arm.role == KrakenArm.Role.RECOIL) and not _anchor_arms.has(arm.index)
+
+## What "the inner side" is at a point: the rock's center line while it is on the rock, its
+## own body in open water. An arm that goes over another goes over on the far side from it.
+func _inner_point(p: Vector3) -> Vector3:
+	if _perched_pose_wanted() and perch_column_radius > 0.0:
+		var up := perch.global_basis.y.normalized()
+		return perch.global_position + up * (p - perch.global_position).dot(up)
+	return body_position()
+
+## Ease a stretch of an arm (points i0..i1, fading out two points either side) by v.
+func _ease_aside(arm: KrakenArm, i0: int, i1: int, v: Vector3, cap: float) -> void:
+	for k in range(maxi(i0 - 2, 1), mini(i1 + 2, arm.avoid.size() - 1) + 1):
+		var w := 1.0
+		if k < i0:
+			w = 0.6 if k == i0 - 1 else 0.25
+		elif k > i1:
+			w = 0.6 if k == i1 + 1 else 0.25
+		arm.avoid[k] = (arm.avoid[k] + v * w).limit_length(cap)
+	arm.avoid_live = true
 
 ## Arms that keep off the stone: all but those already laid on something
 ## (crawling feet on the rock, grips on a hull or a fish).
@@ -2602,13 +2794,41 @@ func _wrap_goals(arm: KrakenArm) -> void:
 		var up := perch.global_basis.y.normalized()
 		var side := global_basis.x
 		var turn := 1.0 if (arm.root() - global_position).dot(side) >= 0.0 else -1.0
-		const PITCHES := [-0.25, -0.45, -0.1, -0.6, 0.2, -0.35, -0.15, 0.3]
-		var pitch: float = PITCHES[arm.index % PITCHES.size()] + drift
-		arm.goals_wrap_column(perch.global_position, up, _rock_e1, _rock_e2, _rock_radius, turn, pitch, -1.25, drift * 0.5)
+		# The arms winding one way fan out like lanes in a bend, so none has to cross
+		# another: the one whose root is farthest round takes the inside lane (turns in
+		# soonest, winds highest), the next one runs further down before it turns, and so on.
+		if _wrap_lane.size() != _arms.size():
+			_lay_wrap_lanes()
+		var lane := float(_wrap_lane[arm.index]) / maxf(_wrap_lanes[arm.index] - 1, 1)
+		var pitch := lerpf(0.25, -0.7, lane) + drift
+		# ...and each lane has its own strip of the rock's face, an arm's width wide: two arms
+		# rooted one above the other (the top and the bottom of the crown) would else come
+		# down onto the same stone and lie in each other
+		var across := absf((arm.root() - global_position).dot(side.normalized()))
+		var strip := (_wrap_lanes[arm.index] - 0.5 - _wrap_lane[arm.index]) * arm.root_radius * 1.8
+		var round_it := (strip - across) / maxf(_rock_r(_rock_coords(arm.root())), 1.0)
+		arm.goals_wrap_column(perch.global_position, up, _rock_e1, _rock_e2, _rock_radius, turn, pitch, lerpf(-1.0, -1.45, lane), turn * round_it + drift * 0.5)
 	else:
 		var normal := perch.global_basis.y.normalized()
 		var out := arm.root() - global_position
 		arm.goals_wrap_plane(perch.global_position, normal, out, (0.6 + 0.3 * sin(arm.index * 2.1)) * (1.0 if arm.index % 2 == 0 else -1.0) + drift)
+
+## Which lane each arm takes round the rock (see _wrap_goals): on each side of the body the
+## arms are ranked by how far round their roots sit (ties: the one on the outer face first).
+func _lay_wrap_lanes() -> void:
+	_wrap_lane.resize(_arms.size())
+	_wrap_lanes.resize(_arms.size())
+	for way in [1.0, -1.0]:
+		var mine: Array = []
+		for i in _arms.size():
+			var rel := _arms[i].root() - global_position
+			if (rel.dot(global_basis.x) >= 0.0) == (way > 0.0):
+				mine.append([i, absf(rel.dot(global_basis.x.normalized())), rel.dot(global_basis.y.normalized())])
+		mine.sort_custom(func(p: Array, q: Array) -> bool:
+			return p[1] > q[1] + 0.05 or (absf(p[1] - q[1]) <= 0.05 and p[2] > q[2]))
+		for k in mine.size():
+			_wrap_lane[mine[k][0]] = k
+			_wrap_lanes[mine[k][0]] = mine.size()
 
 ## ---- the rock -------------------------------------------------------------
 
@@ -2844,7 +3064,7 @@ func _floor_height(delta: float) -> float:
 func _in_guard_area(point: Vector3) -> bool:
 	if guard_area == null:
 		return false
-	for shape: CollisionShape3D in guard_area.find_children("*", "CollisionShape3D", false, false):
+	for shape in _guard_list():
 		if shape.disabled or shape.shape == null:
 			continue
 		var p := shape.global_transform.affine_inverse() * point
@@ -2864,6 +3084,14 @@ func _in_guard_area(point: Vector3) -> bool:
 			if Vector3(p.x, p.y - clampf(p.y, -half, half), p.z).length() <= s.radius:
 				return true
 	return false
+
+## The guard area's shapes: looked for once (this is asked several times a frame).
+func _guard_list() -> Array[CollisionShape3D]:
+	if not _guard_found:
+		_guard_found = true
+		for shape: CollisionShape3D in guard_area.find_children("*", "CollisionShape3D", false, false):
+			_guard_shapes.append(shape)
+	return _guard_shapes
 
 func _breathe() -> void:
 	if _mantle_bone < 0:
