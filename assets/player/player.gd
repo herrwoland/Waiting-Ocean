@@ -82,6 +82,9 @@ var _body: PlayerBody # our own body, if shown (see show_body)
 ## Held by something that turns us with it (a coiling arm): where our hips go and how the body
 ## turns (its +Y up, +Z its front), set every frame by the holder. Identity = held upright as usual.
 var hold_frame := Transform3D()
+## Held, (camera position) -> how far it must move to be out of what holds us (ZERO = clear);
+## set by the holder, cleared when let go.
+var camera_keep_out := Callable()
 ## Drowned and limp (see OxygenController): no control, the body just sinks.
 var unconscious: bool = false
 var unconscious_sink_speed: float = 0.6
@@ -286,6 +289,7 @@ func hold_position() -> Vector3:
 func set_captured(caught: bool) -> void:
 	captured = caught
 	hold_frame = Transform3D()
+	camera_keep_out = Callable()
 	collider.disabled = caught
 	_deck = null
 	velocity = Vector3.ZERO

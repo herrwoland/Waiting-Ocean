@@ -65,6 +65,11 @@ var curl_rate := 0.0
 var curl_quick := 1.0
 ## World axis the coil winds round (a held body's spine); ZERO = whichever way the joints bend.
 var curl_axis := Vector3.ZERO
+## The coil keeps the shape it has now, in the arm's own frame (no longer turned after curl_axis):
+## closed round a body, it goes as the arm goes, instead of turning round on itself as the arm
+## swings and the axis falls another way in it.
+var curl_hold := false
+var _curl_shape := PackedVector2Array() # per joint: the coil's bend, kept while curl_hold
 ## Reaching: the bend front, 0..1 along the arm. Joints behind it aim at the
 ## goal; joints past it stay rolled up. 1 = no front (the whole arm aims).
 var reach_front := 1.0
@@ -252,6 +257,7 @@ func set_role(new_role: Role) -> void:
 	seek_tip = 0.0
 	curl_from = -1.0
 	curl_axis = Vector3.ZERO
+	curl_hold = false
 	curl_quick = 1.0
 	reach_front = 1.0
 	idle_curl = 0.0
@@ -271,68 +277,111 @@ func coil_center() -> Vector3:
 			return skeleton.global_transform * (_pos[k] + before.z.normalized() * radius)
 	return tip()
 
-## Where a held body's middle sits in the coil as the arm really is now (world): the centre of the
-## circle through the coiled joints, if the arm is coiled as tight as the body; wider than that (its
-## bones too long to wind so small), against the inside of the coil, touching it at its middle
-## joint. body_radius: m, the half-thickness of what it holds.
-func coil_seat(body_radius: float) -> Vector3:
-	return coil_frame(body_radius, Vector3.UP).origin
+## Where a held body's middle sits in the coil as the arm really is now (world): see coil_frame().
+func coil_seat() -> Vector3:
+	return coil_frame(Vector3.UP).origin
 
-## The held body's place and turn in the coil as the arm really is now (world): at coil_seat(), its
-## up along the coil's axis (square to the plane the whole coil lies in), on the side of up_hint so
-## the body does not flip over -- unless the rest of the arm is well over on that side: then it
-## turns over, so the arm comes in past the feet, never through the chest or the view. Its left
-## toward where the arm comes into the coil: as the arm turns, the body turns with it.
-func coil_frame(body_radius: float, up_hint: Vector3) -> Transform3D:
-	var first := -1
+## The bone in the middle of the coil (its index in `bones`), -1 when not coiling: a held body,
+## once the coil has closed round it, rides on it.
+func coil_bone() -> int:
+	var first := _coil_first()
+	return -1 if first < 0 else (first + _n) / 2
+
+## Whether the coil has closed: every winding joint is bent as far as it is going to (however it
+## is still turning about; not the first, which only lays the arm flat into it).
+func coil_closed(tolerance := deg_to_rad(10.0)) -> bool:
+	var first := _coil_first()
+	if first < 0:
+		return false
+	for k in range(first + 1, _n):
+		if _bend[k].length() < _target[k].length() - tolerance:
+			return false
+	return true
+
+## From now on the coil keeps the shape it has (see curl_hold).
+func hold_curl() -> void:
+	_curl_shape = _bend.duplicate()
+	curl_hold = true
+
+## Bone k's place and turn in the world (unscaled; +Y along the arm toward the tip).
+func bone_transform(k: int) -> Transform3D:
+	var xf := skeleton.global_transform
+	return Transform3D((xf.basis * _frames[k]).orthonormalized(), xf * _pos[k])
+
+## The first coiling joint, or -1.
+func _coil_first() -> int:
+	if curl_from < 0.0:
+		return -1
 	for k in _n:
 		if along[k] + _segments[k] * _world * 0.5 > curl_from:
-			first = k
-			break
-	if curl_from < 0.0 or first < 0 or _n - first < 2:
+			return k
+	return -1
+
+## The held body's place and turn in the coil as the arm really is now (world). Its place is the
+## middle of the coil: in the plane the coil winds in, as far from every side of it (the arm's
+## skin) as it can be. Its up is square to that plane, on the side of up_hint so the body does not
+## flip over -- unless the rest of the arm is well over on that side: then it turns over, so the
+## arm comes in past the feet, never through the chest or the view. Its left toward where the arm
+## comes into the coil: as the arm turns, the body turns with it.
+func coil_frame(up_hint: Vector3) -> Transform3D:
+	var first := _coil_first()
+	if first < 0 or _n - first < 2:
 		return Transform3D(_upright(up_hint), coil_center())
-	var a := points[first]
-	var m_i := (first + _n) / 2
-	var b := points[m_i]
-	var c := points[_n]
-	# the circle through three points
-	var ab := b - a
-	var ac := c - a
-	var n := ab.cross(ac)
-	if n.length_squared() < 1e-6:
-		return Transform3D(_upright(up_hint), coil_center()) # still straight: not coiled yet
-	var centre := a + (n.cross(ab) * ac.length_squared() + ac.cross(n) * ab.length_squared()) / (2.0 * n.length_squared())
-	# the coil's skin nearest the centre (its bones are straight: the sides of a polygon, not a
-	# circle): wider than the body, the body is held against it there
-	var near := INF
-	var near_at := b
-	for k in range(first, _n):
-		var q := Geometry3D.get_closest_point_to_segment(centre, points[k], points[k + 1])
-		var gap := q.distance_to(centre) - radius_at(k + 1)
-		if gap < near:
-			near = gap
-			near_at = q
-	var reach := near - body_radius
-	var seat := centre if reach <= 0.0 else centre + (near_at - centre).normalized() * reach
-	# the plane the whole coil lies in (Newell: summed over its every side, not three points)
+	# the winding part: the first coiling joint only lays the arm flat into it
+	var from := first + 1 if _n - first >= 3 else first
+	var centre := Vector3.ZERO
+	for k in range(from, _n + 1):
+		centre += points[k]
+	centre /= float(_n + 1 - from)
+	# the plane it winds in (Newell: summed round its every side, not three points)
 	var up := Vector3.ZERO
-	for k in range(first, _n + 1):
-		var p := points[k] - centre
-		var q := (points[k + 1] if k < _n else points[first]) - centre
-		up += p.cross(q)
-	up = up.normalized() if up.length_squared() > 1e-8 else n.normalized()
+	for k in range(from, _n + 1):
+		up += (points[k] - centre).cross((points[k + 1] if k < _n else points[from]) - centre)
+	if up.length_squared() < 1e-8:
+		return Transform3D(_upright(up_hint), coil_center()) # still straight: not coiled yet
+	up = up.normalized()
+	# its middle: from the middle of its corners, step away from whichever side is nearest, in
+	# the plane, for as long as that gets it farther from all of them
+	var seat := centre
+	var gap := _skin_gap(seat, first)
+	var step := 0.5
+	for _it in 32:
+		var away: Vector3 = seat - gap[1]
+		away -= up * away.dot(up)
+		if away.length_squared() < 1e-8 or step < 0.01:
+			break
+		var try := seat + away.normalized() * step
+		var g := _skin_gap(try, first)
+		if g[0] > gap[0]:
+			seat = try
+			gap = g
+		else:
+			step *= 0.5
 	if up.dot(up_hint) < 0.0:
 		up = -up
 	var arm_side := 0.0 # how far the arm is, before the coil, on the head's side
 	for k in range(maxi(first - 3, 0), first):
-		arm_side += (points[k] - centre).dot(up)
+		arm_side += (points[k] - seat).dot(up)
 	if arm_side > ARM_OVER_HEAD * 3.0:
 		up = -up
-	var left := (a - centre) - up * (a - centre).dot(up)
+	var a := points[first]
+	var left := (a - seat) - up * (a - seat).dot(up)
 	if left.length_squared() < 1e-6:
 		return Transform3D(_upright(up), seat)
 	left = left.normalized()
 	return Transform3D(Basis(left, up, left.cross(up)), seat)
+
+## [m from p to the nearest skin of the coiled arm, the point on its middle line there].
+func _skin_gap(p: Vector3, first: int) -> Array:
+	var best := INF
+	var at := p
+	for k in range(first, _n):
+		var q := Geometry3D.get_closest_point_to_segment(p, points[k], points[k + 1])
+		var d := q.distance_to(p) - radius_at(k + 1)
+		if d < best:
+			best = d
+			at = q
+	return [best, at]
 
 const ARM_OVER_HEAD := 1.5 # m: the arm coming into a held body's coil this far on its head's side turns it over
 
@@ -673,6 +722,9 @@ func _lay_over_shapes() -> void:
 		for k in _n:
 			var mid := along[k] + _segments[k] * _world * 0.5
 			if curl_from >= 0.0 and mid > curl_from:
+				if curl_hold and _curl_shape.size() == _n:
+					_target[k] = _curl_shape[k].limit_length(_limit[k])
+					continue
 				var amount := minf(curl_rate * _segments[k] * _world, _limit[k])
 				var way := Vector2(1.0, 0.0)
 				if axis_sk != Vector3.ZERO:

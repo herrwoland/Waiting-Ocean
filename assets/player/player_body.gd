@@ -171,6 +171,8 @@ var _pivot_rest := Vector3.ZERO
 var _ladder_blend := 0.0 # 0 = upright under the camera, 1 = on the ladder with the ship (see _on_ladder())
 var _held_blend := 0.0 # 0 = upright under the camera, 1 = turned with what holds us (see _held())
 var _held_frame := Transform3D() # the last hold_frame, kept while easing back upright
+var _hold_pivot: Node3D # turns the camera with the held body (see _held())
+var _held_yaw := 0.0 # the look's yaw as we were taken: looking round, held, is from there
 var _ladder: Node3D # the ladder we are on, or last were while easing off it
 var _ladder_lean := Basis() # the body's turn and lean on it, in its space (so it moves with the ship)
 var _ladder_offset := Vector3.ZERO # ...and its root from where we are, in its space
@@ -232,9 +234,18 @@ func _find_pivot() -> void:
 	var cam_parent: Node3D = player.camera.get_parent()
 	_pivot = cam_parent if cam_parent.name == &'ShakePivot' else player.camera
 	_pivot_rest = _pivot.position
+	# under the shake, over the camera: turns the view with the body while something holds us (the
+	# look's own yaw and pitch, and the shake, stay on top of it)
+	_hold_pivot = Node3D.new()
+	_hold_pivot.name = &'HoldPivot'
+	cam_parent.add_child(_hold_pivot)
+	cam_parent.move_child(_hold_pivot, player.camera.get_index())
+	_hold_pivot.position = player.camera.position
+	player.camera.reparent(_hold_pivot)
 
-## How far down the thighs, from the hips toward the knees, a grip round the body takes hold.
-const HOLD_DOWN_THIGHS := 0.25
+## How far down the thighs, from the hips toward the knees, a grip round the body takes hold:
+## low, so what holds us stays well away from the eyes.
+const HOLD_DOWN_THIGHS := 0.7
 ## Where a grip round the body takes hold (world): just below the waist, between the tops of the
 ## thighs, as the clip has them now.
 func hold_position() -> Vector3:
@@ -512,9 +523,13 @@ func _held(view_yaw: float, delta: float) -> void:
 	var p = player
 	var on: bool = p.captured and p.hold_frame != Transform3D()
 	if on:
+		if _held_blend <= 0.0:
+			_held_yaw = view_yaw
 		_held_frame = p.hold_frame
 	_held_blend = move_toward(_held_blend, 1.0 if on else 0.0, delta / maxf(held_blend_time, 0.01))
 	if _held_blend <= 0.0:
+		if _hold_pivot and _hold_pivot.basis != Basis.IDENTITY:
+			_hold_pivot.basis = Basis.IDENTITY
 		return
 	var upright := _model.global_transform
 	var hips := upright.affine_inverse() * hold_position() # in the model's own space: the clip's pose
@@ -522,8 +537,19 @@ func _held(view_yaw: float, delta: float) -> void:
 	var k := smoothstep(0.0, 1.0, _held_blend)
 	_model.global_transform = upright.interpolate_with(Transform3D(b, _held_frame.origin - b * hips), k)
 	var eyes := _skel.global_transform * _skel.get_bone_global_pose(_head_bone) * _eye_in_head
-	var at := eyes + Basis(Vector3.UP, view_yaw) * Vector3(0.0, 0.0, -eye_back)
+	# the view turns with the body: ahead is where its face is, looking round is from there
+	var face := b.orthonormalized() * Basis(Vector3.UP, PI) # the model faces +Z, the view -Z
+	var look := face * Basis(Vector3.UP, view_yaw - _held_yaw)
+	var at := eyes + look * Vector3(0.0, 0.0, -eye_back)
 	_pivot.global_position = _pivot.global_position.lerp(at, k)
+	# never inside what holds us: the eyes are nudged out of it, just past its skin
+	if p.camera_keep_out.is_valid():
+		_pivot.global_position += (p.camera_keep_out.call(_pivot.global_position) as Vector3) * k
+	if _hold_pivot:
+		_hold_pivot.basis = Basis.IDENTITY
+		var level := _hold_pivot.global_basis.orthonormalized() # where the look alone (and the shake) has it
+		var shake := Basis(Vector3.UP, view_yaw).inverse() * level
+		_hold_pivot.global_basis = level.slerp(look * shake, k)
 
 ## Swimming under the water (the eyes under, not afloat), the body lies along the view like a diver,
 ## head first, its strokes out in front of the eyes. The swim clip already lies flat, head forward,

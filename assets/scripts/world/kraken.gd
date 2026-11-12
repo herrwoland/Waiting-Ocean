@@ -178,7 +178,9 @@ enum FishPhase { CHASE, REEL, DRAG, SETTLE, FEED } # a giant fish in its waters:
 @export var hold_bend_max := 120.0
 ## x how fast the coiling tip closes round the body, against the rest of the arm (about a second).
 @export var hold_coil_quick := 5.0
-## 1/s how quickly the held body turns after the coil as it turns (it goes round with the arm).
+## Fastest the held body turns (degrees/s) going into the coil's turn once it has closed round it.
+@export var held_turn_max_speed := 90.0
+## 1/s how quickly the held body turns into the coil once it has closed round it.
 @export var held_turn_rate := 4.0
 
 @export_group("The ship")
@@ -330,6 +332,8 @@ var _hold_blend := 0.0
 var _carrier: KrakenArm # the arm whose coil the prey rides in
 var _hold_point := Vector3.ZERO # where the carrier swings the prey to
 var _held_turn := Basis.IDENTITY # how the held body is turned (it turns with the coil, eased)
+var _lock_bone := -1 # the carrier's bone the held body is locked to (-1: not yet)
+var _lock_offset := Transform3D() # the held body's frame in that bone's space
 var _hold_dir := Vector3.UP # from its eyes to where it holds the prey, set at the catch
 var _struggle := 0.0 # 0 = gripped tight, 1 = free
 var _reach_start := -1.0 # when the first arm of this attempt reached, -1 = none
@@ -1799,10 +1803,13 @@ func _catch() -> void:
 	_hold_dir = (_prey_point() - _eye_position() + Vector3.UP * 6.0).normalized() # toward the catch, a little raised
 	_hold_start = _time
 	_catch_from = _player.global_position
-	_held_turn = Basis.IDENTITY
+	_held_turn = Basis(Vector3.UP, _player.head.global_rotation.y + PI) if &'head' in _player else Basis.IDENTITY # the body faces +Z
+	_lock_bone = -1
 	_hold_blend = 0.0
 	_struggle = 0.0
 	_player.set_captured(true)
+	if &'camera_keep_out' in _player:
+		_player.camera_keep_out = _camera_out_of_arms
 	_play(_grab_sound)
 	EventBus.camera_shake_requested.emit(catch_shake)
 
@@ -1850,11 +1857,38 @@ func _update_hold(delta: float) -> void:
 	_coil(_carrier) # the others only close round them: coiled, they would knot round nothing
 	_hold_blend = minf(_hold_blend + delta / 1.5, 1.0)
 	var s := _hold_blend * _hold_blend * (3.0 - 2.0 * _hold_blend)
-	# the hips into the coil, against the arm; the body turns with the coil (as it turns over, its
-	# up is kept on the side it was, never flipping), so the arm never cuts through it
-	var frame := _carrier.coil_frame(held_body_radius, _held_turn.y)
-	# eased: a coil that turns over, turns the body over with it, not in one frame
-	_held_turn = _held_turn.slerp(frame.basis.orthonormalized(), 1.0 - exp(-held_turn_rate * delta)).orthonormalized()
+	# the hips into the middle of the coil; the body turns with the coil (as it turns over, its up
+	# is kept on the side it was, never flipping), so the arm never cuts through it
+	# until the coil has closed round them they go to its middle as it is now, still turned as they
+	# were taken (a coil still closing turns every which way); closed, the body is locked to the
+	# bone in its middle -- it goes wherever that bone goes, turned as it turns -- and eases round
+	# into the coil's turn
+	var frame := _carrier.coil_frame(_held_turn.y)
+	var bone := _carrier.coil_bone()
+	if bone >= 0:
+		var bone_xf := _carrier.bone_transform(bone)
+		if _lock_bone != bone:
+			# in the coil, turned the way nearest to how the body is now: either side up, facing
+			# any way round it (the coil goes round them, it has no front)
+			var up := frame.basis.y.normalized()
+			if up.dot(_held_turn.y) < 0.0:
+				up = -up
+			var fwd := _held_turn.z - up * _held_turn.z.dot(up)
+			if fwd.length_squared() < 1e-4:
+				fwd = _held_turn.y - up * _held_turn.y.dot(up) # lying across the coil: its top end
+			fwd = fwd.normalized()
+			_lock_offset = bone_xf.affine_inverse() * Transform3D(Basis(up.cross(fwd), up, fwd), frame.origin)
+			if _hold_blend >= 1.0 and _carrier.coil_closed():
+				_lock_bone = bone
+				_carrier.hold_curl() # the coil keeps its shape round them from now on
+		if _lock_bone == bone:
+			frame = bone_xf * _lock_offset
+			var to := frame.basis.orthonormalized()
+			var angle := _held_turn.get_rotation_quaternion().angle_to(to.get_rotation_quaternion())
+			var t := 1.0 - exp(-held_turn_rate * delta)
+			if angle > 0.0001:
+				t = minf(t, deg_to_rad(held_turn_max_speed) * delta / angle)
+			_held_turn = _held_turn.slerp(to, t).orthonormalized()
 	frame.basis = _held_turn
 	if &'hold_frame' in _player:
 		_player.hold_frame = frame
@@ -1862,6 +1896,23 @@ func _update_hold(delta: float) -> void:
 	var held := frame.origin - grip
 	held.y = minf(held.y, _surface_y(held) - hold_min_depth)
 	_player.global_position = _catch_from.lerp(held, s)
+
+## How far a point (the held player's eyes) must move to be clear of every arm's skin, with
+## room for the camera's near plane. Twice round: out of one arm can be into the next.
+func _camera_out_of_arms(p: Vector3) -> Vector3:
+	var start := p
+	for _pass in 2:
+		for arm in _arms:
+			if arm.root().distance_to(p) > arm.length + arm.root_radius:
+				continue
+			for i in range(arm.points.size() - 1):
+				var q := Geometry3D.get_closest_point_to_segment(p, arm.points[i], arm.points[i + 1])
+				var room: float = arm.radius_at(i + 1) + CAMERA_ROOM
+				var d := q.distance_to(p)
+				if d < room and d > 0.0001:
+					p = q + (p - q) / d * room
+	return p - start
+const CAMERA_ROOM := 0.15 # m the camera is kept off an arm's skin
 
 ## The tip coils round the held body: tighter when the grip is firm.
 func _coil(arm: KrakenArm) -> void:
