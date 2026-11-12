@@ -351,7 +351,7 @@ radius = 5.0
 script = ExtResource("1_skarq")
 
 [node name="PlayerSpawn" type="Marker3D" parent="." unique_id=1902926855]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 300.41827, 6.6366787, -54.255486)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 405.5166, 6.6366787, 451.39102)
 gizmo_extents = 0.54
 
 [node name="Environment" type="WorldEnvironment" parent="." unique_id=1400611425]
@@ -376,7 +376,7 @@ eye_waterline_clearance = 0.9
 eye_waterline_speed = 16.0
 
 [node name="Boat" parent="." unique_id=108108734 node_paths=PackedStringArray("water") instance=ExtResource("45_boat")]
-transform = Transform3D(-0.99955845, 0.027389033, -0.011583984, 0.027358893, 0.9996218, 0.0027563104, 0.0116551, 0.0024383024, -0.99992985, 300.41876, 1.585, -54.029)
+transform = Transform3D(-0.99955845, 0.027389033, -0.011583984, 0.027358893, 0.9996218, 0.0027563104, 0.0116551, 0.0024383024, -0.99992985, 405.5171, 1.585, 451.61752)
 water = NodePath("../Water")
 
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=2103121333]
@@ -392,7 +392,7 @@ shadow_opacity = 0.8
 shadow_blur = 4.592
 
 [node name="Rain" type="Node3D" parent="." unique_id=1570342401]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 335.0821, -6.8563685, -25.458912)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -97.550995, 565.6024, 285.5415)
 script = ExtResource("60_rain")
 intensity = 0.0
 wind_strength = 2.0
@@ -449,7 +449,7 @@ shape = SubResource("CylinderShape3D_5s6u7")
 debug_color = Color(0.8128558, 0.030233042, 0.97549945, 0.41960785)
 
 [node name="Water" type="MeshInstance3D" parent="." unique_id=946478083]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 336, 0, -25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -97, 0, 286)
 layers = 524288
 sorting_offset = 999.0
 material_override = ExtResource("5_lt75t")

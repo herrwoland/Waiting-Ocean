@@ -343,6 +343,9 @@ uniform float caustic_dispersion : hint_range(0.0, 0.03, 0.0005) = 0.004;
 uniform int caustic_cascade : hint_range(-1, 7) = 1;
 group_uniforms;
 
+// Height of the wind waves alone around the surface they ride on, for the translucency. Water
+// shapes and calm planes are left out: a dome or a swell they lift is a hill of solid water,
+// not a thin crest light can come through.
 varying float wave_height;
 varying float foam_factor;
 varying float fresnel;
@@ -533,7 +536,6 @@ void vertex() {
 	// Calmed water lies on its blocker's calm plane: sea level by a shore, the swell under a ship.
 	float calm_lift = blocker.z * (1.0 - blocker_mask);
 	VERTEX.y += shape.x + calm_lift;
-	wave_height += shape.x + calm_lift;
 }
 
 /** Filter weights for a cubic B-spline. */

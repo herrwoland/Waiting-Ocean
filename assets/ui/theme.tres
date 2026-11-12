@@ -124,33 +124,6 @@ bg_color = Color(0.11, 0.15, 0.17, 1)
 border_width_left = 2
 border_color = Color(0.45, 0.62, 0.64, 1)
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tab_on"]
-content_margin_left = 12.0
-content_margin_top = 5.0
-content_margin_right = 12.0
-content_margin_bottom = 5.0
-bg_color = Color(0.11, 0.15, 0.17, 1)
-border_width_top = 2
-border_color = Color(0.45, 0.62, 0.64, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tab_off"]
-content_margin_left = 12.0
-content_margin_top = 5.0
-content_margin_right = 12.0
-content_margin_bottom = 5.0
-bg_color = Color(0.055, 0.075, 0.086, 1)
-border_width_top = 2
-border_color = Color(0.13, 0.17, 0.19, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_stab_on"]
-content_margin_left = 9.0
-content_margin_top = 4.0
-content_margin_right = 9.0
-content_margin_bottom = 4.0
-bg_color = Color(0.11, 0.15, 0.17, 1)
-border_width_top = 2
-border_color = Color(0.45, 0.62, 0.64, 1)
-
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_stab_hover"]
 content_margin_left = 9.0
 content_margin_top = 4.0
@@ -165,6 +138,33 @@ content_margin_left = 9.0
 content_margin_top = 4.0
 content_margin_right = 9.0
 content_margin_bottom = 4.0
+bg_color = Color(0.055, 0.075, 0.086, 1)
+border_width_top = 2
+border_color = Color(0.13, 0.17, 0.19, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_stab_on"]
+content_margin_left = 9.0
+content_margin_top = 4.0
+content_margin_right = 9.0
+content_margin_bottom = 4.0
+bg_color = Color(0.11, 0.15, 0.17, 1)
+border_width_top = 2
+border_color = Color(0.45, 0.62, 0.64, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tab_on"]
+content_margin_left = 12.0
+content_margin_top = 5.0
+content_margin_right = 12.0
+content_margin_bottom = 5.0
+bg_color = Color(0.11, 0.15, 0.17, 1)
+border_width_top = 2
+border_color = Color(0.45, 0.62, 0.64, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tab_off"]
+content_margin_left = 12.0
+content_margin_top = 5.0
+content_margin_right = 12.0
+content_margin_bottom = 5.0
 bg_color = Color(0.055, 0.075, 0.086, 1)
 border_width_top = 2
 border_color = Color(0.13, 0.17, 0.19, 1)
@@ -214,6 +214,18 @@ OptionButton/styles/normal = SubResource("StyleBoxFlat_btn")
 OptionButton/styles/pressed = SubResource("StyleBoxFlat_btn_press")
 Panel/styles/panel = SubResource("StyleBoxFlat_panel")
 PanelContainer/styles/panel = SubResource("StyleBoxFlat_panel")
+SettingRow/base_type = &"PanelContainer"
+SettingRow/styles/panel = SubResource("StyleBoxEmpty_row")
+SettingRowFocus/base_type = &"PanelContainer"
+SettingRowFocus/styles/panel = SubResource("StyleBoxFlat_row_focus")
+SettingValue/base_type = &"Button"
+SettingValue/colors/font_color = Color(0.93, 0.97, 0.97, 1)
+SettingValue/colors/font_hover_color = Color(1, 1, 1, 1)
+SettingValue/colors/font_pressed_color = Color(0.62, 0.8, 0.82, 1)
+SettingValue/styles/focus = SubResource("StyleBoxEmpty_none")
+SettingValue/styles/hover = SubResource("StyleBoxEmpty_none")
+SettingValue/styles/normal = SubResource("StyleBoxEmpty_none")
+SettingValue/styles/pressed = SubResource("StyleBoxEmpty_none")
 SettingsTab/base_type = &"Button"
 SettingsTab/colors/font_color = Color(0.5, 0.58, 0.6, 1)
 SettingsTab/colors/font_hover_color = Color(0.85, 0.92, 0.93, 1)
@@ -227,18 +239,6 @@ SettingsTabOn/colors/font_color = Color(0.93, 0.97, 0.97, 1)
 SettingsTabOn/colors/font_hover_color = Color(0.93, 0.97, 0.97, 1)
 SettingsTabOn/styles/hover = SubResource("StyleBoxFlat_stab_on")
 SettingsTabOn/styles/normal = SubResource("StyleBoxFlat_stab_on")
-SettingRow/base_type = &"PanelContainer"
-SettingRow/styles/panel = SubResource("StyleBoxEmpty_row")
-SettingRowFocus/base_type = &"PanelContainer"
-SettingRowFocus/styles/panel = SubResource("StyleBoxFlat_row_focus")
-SettingValue/base_type = &"Button"
-SettingValue/colors/font_color = Color(0.93, 0.97, 0.97, 1)
-SettingValue/colors/font_hover_color = Color(1, 1, 1, 1)
-SettingValue/colors/font_pressed_color = Color(0.62, 0.8, 0.82, 1)
-SettingValue/styles/focus = SubResource("StyleBoxEmpty_none")
-SettingValue/styles/hover = SubResource("StyleBoxEmpty_none")
-SettingValue/styles/normal = SubResource("StyleBoxEmpty_none")
-SettingValue/styles/pressed = SubResource("StyleBoxEmpty_none")
 TabContainer/colors/font_hovered_color = Color(0.85, 0.92, 0.93, 1)
 TabContainer/colors/font_selected_color = Color(0.93, 0.97, 0.97, 1)
 TabContainer/colors/font_unselected_color = Color(0.5, 0.58, 0.6, 1)
