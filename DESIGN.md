@@ -123,9 +123,23 @@ marker, GuardArea, Kraken). Code: `kraken.gd` (behaviour) + `kraken_arm.gd` (pro
 - Open: the kept ship strands the player at sea until they drown or the day resets — see §8.
 
 ### The leviathan (eats lit ships)
-An ancient, colossal (~500 m, one `body_length` dial) basking-shark-like creature that swims half out
-of the sea with its mouth always open. Why the power panel exists. Code: `leviathan.gd` (behaviour),
+An ancient, colossal (1 km in game, one `body_length` dial) basking-shark-like creature, its mouth
+always open. Why the power panel exists. Code: `leviathan.gd` (behaviour),
 `leviathan_encounter.gd` + `scenes/world/leviathan_waters.tscn` (EncounterArea, user-sized).
+- **Mostly under the sea (2026-11-12):** it swims about with only the ridge of its back showing
+  (`cruise_exposure`, 0.15 = 15% of its height, ~50 m of a 337 m tall body). It comes up out of the
+  sea, mouth and all, only to swallow her: **the breach**. The moment it commits it heaves all of
+  itself up, level, over `breach_time` (5 s) so as to be fully up `breach_hold` (2.5 s) before its
+  mouth reaches her; the sea bursts off its whole back, it calls again (`breach_call`), a swell
+  rolls out. The safe distance is whichever is farther: `judge_distance`, or its closing speed x
+  (breach_time + breach_hold), ~260 m on a first pass. Rule for the player: once it rises, it is
+  too late.
+- **Lights cut in time:** it is far too wide (340 m) to swerve round her, so it goes under (its back
+  `pass_under_depth`, 25 m, below the sea) and passes beneath her; its water shapes are stilled
+  meanwhile (the plunge would drag a 37 m hole in the sea and drop her onto its back). It stays
+  under until its tail has cleared her, even if she lights up again.
+- Its size is measured from its colliders (LeviathanSplash `body_top/bottom/side`), not guessed:
+  spawn depth, the call's lead and the passing gaps all use it.
 - **Comes** only at night (sun dimmer than `night_sun_energy`, until there is a clock), when the
   player swims or sails into the EncounterArea; once per entry, 240 s cooldown. Debug builds: F8.
 - **Never pops in:** made 250 m down well off, ahead of the ship (±60°), it swims up. Its call
@@ -152,7 +166,8 @@ of the sea with its mouth always open. Why the power panel exists. Code: `leviat
   and carried with it; nothing moves the player, who stays aboard like on any moving deck. A player
   inside its MouthInside (an Area3D over the mouth cavity) for 10 s straight is lost: the view fades
   to black (3 s), then they die (same morning). Once it has caught her or the player is in its
-  mouth it slows to 3 m/s for 3-4 s, then goes back down; a ship it takes down without the player is
+  mouth it swims on 3-4 s (barely slowing: braking hard there would let her sail back out), then
+  goes back down, gone only once its tail too is under; a ship it takes down without the player is
   kept until the morning gives her back. Its model's collision is made a moving body (two-sided).
 - Placeholder built from primitives (`leviathan.tscn`: Head + Body/Seg00..08). The real model needs
   to bend: a rigid head piece and a body cut in segments (or bones) along +Z, see §7.

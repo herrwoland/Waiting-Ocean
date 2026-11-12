@@ -1,7 +1,9 @@
 class_name Leviathan extends Node3D
-## Something ancient and colossal, shaped like a basking shark, that swims half out of the sea with
-## its mouth always open. It eats lit ships. LeviathanEncounter brings it: begin() places it deep
-## below the surface (it never pops into view) and it plays out one encounter, then frees itself.
+## Something ancient and colossal, shaped like a basking shark, its mouth always open. It eats lit
+## ships. It swims about nearly all under the sea, only the ridge of its back showing
+## (cruise_exposure), and heaves itself up out of it, mouth and all, only when it comes to swallow
+## her (the breach). LeviathanEncounter brings it: begin() places it deep below the surface (it
+## never pops into view) and it plays out one encounter, then frees itself.
 ## Too big to turn on the spot, it always swims on a curve (tuned in
 ## backups/leviathan_replays/leviathan_tuning.html, which these defaults come from):
 ##
@@ -14,9 +16,12 @@ class_name Leviathan extends Node3D
 ##    can turn, it swims straight out (RUNUP) until she is run_up_margin outside it, then turns in
 ##    again. Within lunge_distance its head swings round as tight as lunge_turn_radius and the sea
 ##    flows into its mouth (suction_*), faster than she can sail.
-##  - COMMIT: lit inside judge_distance: it comes for her at hunt_speed. Cut the power now and it
-##    is too late: it holds its course.
-##  - MISS: the power was cut before judge_distance: it carries on past her, cut_gap off its
+##  - COMMIT: lit inside the safe distance: it comes for her at hunt_speed and breaches, rising
+##    out of the sea over breach_time s to be fully up breach_hold s before its mouth reaches her.
+##    The safe distance is judge_distance, or farther where the breach needs the room (its closing
+##    speed x those seconds). Cut the power now and it is too late: it holds its course.
+##  - MISS: the power was cut before judge_distance: it gives her up, goes under (its back
+##    pass_under_depth below the sea) and carries on beneath or past her, steering cut_gap off its
 ##    flank, and goes down dive_after_min..max m past her. Lights on again before it goes down: it
 ##    comes round for her (return_multiplier faster, return_judge_distance, return_turn_radius);
 ##    cut again in time and it passes return_gap off. A lit ship it missed is hunted again.
@@ -45,8 +50,22 @@ const HEAD_LENGTH := 160.0 # m (model units) from the mouth to where the Body's 
 
 ## Length of the body (m). Everything (mouth, turns, water, gullet) scales with it.
 @export_range(50.0, 2000.0, 1.0, 'or_greater') var body_length := 500.0
-## Body axis height above sea level while at the surface (m). 0 = half out of the water.
+## Body axis height above sea level once it has breached (m). 0 = its mouth half out of the water.
 @export var surface_offset := 0.0
+
+@export_group('Depth')
+## How much of its height stands out of the sea as it swims about (0 = its back awash, 1 = as far
+## out as when it has breached).
+@export_range(0.0, 1.0, 0.01) var cruise_exposure := 0.15
+## Seconds it takes to heave itself up out of the sea, mouth and all, when it comes to swallow her.
+@export_range(1.0, 20.0, 0.1) var breach_time := 5.0
+## Seconds it is fully up before its mouth reaches her: the look she gets at it.
+@export_range(0.0, 10.0, 0.1) var breach_hold := 2.5
+## Its call sounds again as it breaches.
+@export var breach_call := true
+## Giving her up (lights cut in time) it goes under, to pass beneath her: how far under the sea its
+## back is by the time it reaches her (m). It is far too wide to swerve round her that late.
+@export var pass_under_depth := 25.0
 
 @export_group('Rising')
 ## How deep it starts and ends (m below sea level). It starts deeper where it must, for its back
@@ -208,6 +227,19 @@ var _player_on_ship := Vector3.INF # where on the held ship the player last stoo
 var _player_held := false # the player is carried inside it with her (see _hold_player())
 var _ship_local := Transform3D.IDENTITY # the caught ship, in the head's (unscaled) space
 var _dive_in := 0.0 # s left before it goes down after feeding
+var _gave_up := false # it gave her up (lights cut in time) and has not come back for her
+var _level_to := INF # the depth it is moving to or holding (its axis, world y), see _keep_level()
+var _level_from := 0.0
+var _level_speed := 0.0
+var _level_time := 1.0
+var _level_t := 0.0
+var _heave := 0.0 # m it has lifted (or sunk) all of itself at once, on top of the path it swam (see _keep_level)
+var _breaching := false # heaving itself up out of the sea to swallow her, or up
+var _breach_secs := 0.0 # s this breach takes
+var _breach_burst := false # the water has burst off its back (once a breach, as it rises fastest)
+var _clear_at := 0.0 # m swum by which its tail has passed from under a ship it went beneath
+var _deformers: Array[WaterDeformer] = [] # its water shapes, and how strong each is set
+var _deformer_strength: Array[float] = []
 var _mouth_t := 0.0 # s the player has been inside its mouth, straight
 var _fade_t := -1.0 # s into the fade to black (< 0: not started)
 var _died := false
@@ -235,6 +267,8 @@ func _ready() -> void:
 		_tail_rest = _tail.basis
 	for d in find_children('*', 'WaterDeformer', true, false):
 		_scale_deformer(d)
+		_deformers.append(d)
+		_deformer_strength.append(d.strength)
 	# It moves before anything riding it: a ship it holds is in place before the player standing on
 	# her is carried along, or each frame the deck runs a frame ahead and shakes them loose.
 	process_physics_priority = -10
@@ -336,7 +370,7 @@ func _physics_process(delta: float) -> void:
 			if _dive_in <= 0.0:
 				_set_state(State.DIVE)
 	if state != State.RISE and state != State.DIVE:
-		_hold_surface(delta)
+		_keep_level(delta)
 	# its turn eases toward the one it wants
 	var mk := _max_curve()
 	_curve += clampf(_curve_target - _curve, -mk * delta / steer_ease, mk * delta / steer_ease)
@@ -360,7 +394,7 @@ func _physics_process(delta: float) -> void:
 ## ---- states --------------------------------------------------------------------
 
 func _process_rise(delta: float) -> float:
-	var gap := _surface_y() - global_position.y
+	var gap := _cruise_y() - global_position.y
 	_climb_to(clampf(gap / rise_ease, 0.0, rise_climb), delta)
 	# the call, heard a little before it breaks the surface
 	var top := global_position.y + _top()
@@ -372,7 +406,7 @@ func _process_rise(delta: float) -> float:
 		_surfaced = true
 		_play(_surface_sound)
 	if _surfaced or gap < 2.0:
-		# its back shows: from here it hunts or drifts, still climbing (see _hold_surface)
+		# its back shows: from here it hunts or drifts, still climbing (see _keep_level)
 		_set_state(State.HUNT if _lit else State.DRIFT)
 	return rise_speed
 
@@ -400,14 +434,30 @@ func _process_hunt(d: float) -> float:
 	var angle := wrapf(_yaw_of(to) - _yaw, -PI, PI)
 	var mk := _max_curve()
 	_curve_target = clampf(angle / (4.0 * maxf(_speed, 1.0)), -mk, mk)
-	var jd := return_judge_distance if _returned else judge_distance
+	# the safe distance: the judged one, or the room its breach needs at the speed they are closing
+	var closing := maxf(_speed - _ship_vel.dot(to.normalized()), 5.0)
+	var jd := maxf(return_judge_distance if _returned else judge_distance, closing * (breach_time + breach_hold))
 	if state == State.HUNT and d <= jd and _facing() < PI / 4.0:
 		_set_state(State.COMMIT)
+		# up in breach_time s, or quicker if she is nearer than that: its mouth must be up to take her
+		_breach(clampf(d / closing - breach_hold, 1.5, breach_time))
 	elif state == State.COMMIT and not _ahead() and d > MOUTH_REACH * 3.0:
 		_min_d = d
 		_begin_passed() # she slipped past its mouth: while lit it comes round for her
 	_shake_with_closeness(d)
 	return speed
+
+## It heaves itself up out of the sea over `secs` s (see _keep_level): the sea rushes off it, it
+## calls, and a swell rolls out from under it.
+func _breach(secs: float) -> void:
+	_breaching = true
+	_breach_secs = secs
+	_breach_burst = false
+	_play(_surface_sound)
+	if breach_call:
+		_play(_call_sound)
+	for d in _deformers:
+		d.emit_ring(1.0, secs * 0.5)
 
 func _process_runup() -> float:
 	_curve_target = 0.0
@@ -472,6 +522,8 @@ func _on_lights() -> void:
 func _begin_passed() -> void:
 	_passed_at = _swum
 	_dive_after = _rng.randf_range(dive_after_min, dive_after_max)
+	if _gave_up:
+		_clear_at = _swum + body_length * 1.1 # it is going by beneath her: all of it must pass first
 	_set_state(State.PASSED)
 
 func _steer_at_lure() -> void:
@@ -530,6 +582,8 @@ func _feed() -> void:
 	_dive_in = _rng.randf_range(dive_delay_min, dive_delay_max)
 	if state != State.DIVE:
 		_set_state(State.SWALLOW)
+		if not _breaching:
+			_breach(1.5) # it has her without having come up for her: up now
 
 ## The player in its mouth: the countdown runs (it starts over if they get out); at mouth_time s
 ## the dark comes, then death. Tested by position, not by the area's signals: at the helm the
@@ -617,12 +671,17 @@ func _move(delta: float) -> void:
 	_yaw += _curve * _speed * delta
 	global_position += _flat_dir(_yaw) * _speed * delta + Vector3.UP * _vy * delta
 	_swum += _speed * delta
-	var climb := atan2(_vy, maxf(_speed, 1.0))
+	# swimming up from the deep or down into it, its body follows its head along the path; any
+	# other change of depth lifts or lowers all of it at once, level
+	var on_path := state == State.RISE or state == State.DIVE
+	if not on_path:
+		_heave += _vy * delta
+	var climb := atan2(_vy, maxf(_speed, 1.0)) if on_path else 0.0
 	var limit := deg_to_rad(max_pitch)
 	_pitch = lerpf(_pitch, clampf(climb, -limit, limit), 1.0 - exp(-0.5 * delta))
 	global_basis = _basis()
-	if _trail.is_empty() or _trail[0].distance_to(global_position) >= TRAIL_STEP * _k:
-		_trail.insert(0, global_position)
+	if _trail.is_empty() or _trail[0].distance_to(global_position - Vector3.UP * _heave) >= TRAIL_STEP * _k:
+		_trail.insert(0, global_position - Vector3.UP * _heave)
 		var keep := int(ceil(_trail_length() / (TRAIL_STEP * _k))) + 3
 		if _trail.size() > keep:
 			_trail.resize(keep)
@@ -760,7 +819,8 @@ func _find_spine() -> void:
 ## The points `wants` m (ascending) behind the mouth along the path it swam.
 func _trail_points(wants: PackedFloat32Array) -> PackedVector3Array:
 	var out := PackedVector3Array()
-	var prev := global_position
+	var lift := Vector3.UP * _heave # the trail is the path alone: all of it is lifted alike
+	var prev := global_position - lift
 	var walked := 0.0
 	var j := 0
 	var w := 0
@@ -768,14 +828,14 @@ func _trail_points(wants: PackedFloat32Array) -> PackedVector3Array:
 		if j < _trail.size():
 			var l := prev.distance_to(_trail[j])
 			if walked + l >= wants[w] and l > 0.0001:
-				out.append(prev.lerp(_trail[j], (wants[w] - walked) / l))
+				out.append(prev.lerp(_trail[j], (wants[w] - walked) / l) + lift)
 				w += 1
 				continue
 			walked += l
 			prev = _trail[j]
 			j += 1
 		else:
-			out.append(prev - _flat_dir(_yaw) * (wants[w] - walked)) # past the end: straight on
+			out.append(prev - _flat_dir(_yaw) * (wants[w] - walked) + lift) # past the end: straight on
 			w += 1
 	return out
 
@@ -793,8 +853,63 @@ func _basis() -> Basis:
 func _climb_to(target: float, delta: float, accel := -1.0) -> void:
 	_vy = move_toward(_vy, target, (vertical_acceleration if accel < 0.0 else accel) * delta)
 
-func _hold_surface(delta: float) -> void:
-	_climb_to(clampf((_surface_y() - global_position.y) / rise_ease, -2.0, rise_climb), delta)
+## Holds the depth it should be at for what it is doing (_level()), and moves to a new one in a
+## single smooth heave: it carries on from the way it was already moving and settles without a jolt.
+## All of it rises or sinks together and level (_heave), so its mouth is level when it takes her.
+func _keep_level(delta: float) -> void:
+	var want := _level()
+	if absf(want.x - _level_to) > 0.5:
+		_level_from = global_position.y
+		_level_speed = _vy
+		_level_to = want.x
+		_level_time = maxf(want.y, 0.5)
+		_level_t = 0.0
+	_level_t += delta
+	var next := _level_to
+	if _level_t < _level_time:
+		var t := _level_t / _level_time
+		var t2 := t * t
+		var t3 := t2 * t
+		next = (2.0 * t3 - 3.0 * t2 + 1.0) * _level_from \
+				+ (t3 - 2.0 * t2 + t) * _level_time * _level_speed \
+				+ (3.0 * t2 - 2.0 * t3) * _level_to
+	var was := _vy
+	_vy = (next - global_position.y) / delta
+	if _breaching:
+		# rising its fastest: the sea on its back bursts up off it, all along it
+		if not _breach_burst and _vy < was and _vy > 3.0:
+			_breach_burst = true
+			_splash.breach()
+		EventBus.camera_shake_requested.emit(clampf(_vy / 30.0, 0.0, 1.0) * 0.35)
+	# going beneath her the sea is left alone: a plunge that size would drag a hole in it deep
+	# enough to drop her onto its back
+	var under := _level_to < _cruise_y() - 1.0
+	for i in _deformers.size():
+		_deformers[i].strength = move_toward(_deformers[i].strength, 0.0 if under else _deformer_strength[i],
+				_deformer_strength[i] * delta / (1.0 if under else 4.0))
+
+## Where its axis should be (world y) and, when that is new, the seconds it takes to get there.
+func _level() -> Vector2:
+	var tts := _mouth_to_ship() / maxf(_speed, 5.0) # s until its mouth is where she is
+	if _breaching:
+		return Vector2(_surface_y(), _breach_secs)
+	if state == State.MISS or (state == State.PASSED and _gave_up) or _swum < _clear_at:
+		# given her up: under, and there before its mouth reaches her; it stays under until its
+		# tail too has gone by beneath her, even if she lights up again
+		return Vector2(_cruise_y() if _under_y() > _cruise_y() else _under_y(), clampf(tts * 0.8, 2.0, 12.0))
+	var y := _cruise_y()
+	var secs := maxf(1.5 * absf(y - global_position.y) / maxf(rise_climb, 0.1), 2.0)
+	if _lit and state == State.HUNT and _ahead():
+		secs = minf(secs, maxf(tts * 0.8, 2.0)) # coming back up for her: up before it reaches her
+	return Vector2(y, secs)
+
+## Its axis as it swims about: cruise_exposure of its height out of the sea.
+func _cruise_y() -> float:
+	return minf(_sea() + cruise_exposure * (_top() + _bottom()) - _top(), _surface_y())
+
+## Its axis when it goes beneath her.
+func _under_y() -> float:
+	return _sea() - _top() - pass_under_depth
 
 func _sway_tail() -> void:
 	if _tail:
@@ -876,6 +991,10 @@ func _top() -> float:
 func _side() -> float:
 	return _splash.body_side if _splash and _splash.body_side > 0.0 else _radius()
 
+## How far its belly hangs below its axis (m).
+func _bottom() -> float:
+	return _splash.body_bottom if _splash and _splash.body_bottom > 0.0 else _radius()
+
 func _mult() -> float:
 	return return_multiplier if _returned else 1.0
 
@@ -930,6 +1049,12 @@ static func _flat2(yaw: float) -> Vector2:
 
 func _set_state(s: State) -> void:
 	state = s
+	if s == State.MISS:
+		_gave_up = true
+	elif s == State.HUNT:
+		_gave_up = false
+	if s != State.COMMIT and s != State.SWALLOW:
+		_breaching = false # only while it comes to swallow her is it up out of the sea
 
 ## ---- set-up --------------------------------------------------------------------
 

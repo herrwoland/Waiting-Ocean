@@ -246,6 +246,15 @@ static func shape_points(shape: Shape3D, edge_step: float) -> PackedVector3Array
 					local.append(Vector3(lerpf(-h.x, h.x, x / 4.0), lerpf(-h.y, h.y, y / 4.0), lerpf(-h.z, h.z, z / 4.0)))
 	return local
 
+## The body is heaving itself up out of the sea (the Leviathan's breach): every part of it in the
+## water bursts through anew, the sea heaped on it thrown up and off (the crown) and pouring down
+## its flanks, just as when it first came up.
+func breach() -> void:
+	for st: Dictionary in _stations:
+		if st.state != -1:
+			st.out_t = 0.0
+			st.crown = true
+
 ## A station's ellipse now: [middle, half-width vector, half-height vector, way to the tail (unit)].
 static func _now(st: Dictionary) -> Array:
 	var m: Transform3D = st.col.global_transform
