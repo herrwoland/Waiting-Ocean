@@ -47,6 +47,7 @@ func _ready() -> void:
 	else:
 		push_warning('LeviathanEncounter: no encounter_area set; it only comes on the debug key.')
 	EventBus.day_started.connect(_on_day_started)
+	Leviathan.warm_sounds() # now, while the game loads, not as a stutter when it comes
 	set_process(false)
 
 func _process(delta: float) -> void:

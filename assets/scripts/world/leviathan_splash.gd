@@ -197,7 +197,16 @@ func _build_stations(colliders: Array[Node3D], mouth: Node3D) -> void:
 ## Points over a collision shape's surface, in world space (its edges filled in, so a mesh made of
 ## a few big triangles still lands in every slice it spans).
 static func _surface_points(cs: CollisionShape3D) -> PackedVector3Array:
-	var shape := cs.shape
+	var local := shape_points(cs.shape, SLICE * 0.4 / cs.global_basis.get_scale().x)
+	var m := cs.global_transform
+	var out := PackedVector3Array()
+	out.resize(local.size())
+	for i in local.size():
+		out[i] = m * local[i]
+	return out
+
+## Points over a shape's surface, in its own space. A mesh's edges are filled in every `edge_step`.
+static func shape_points(shape: Shape3D, edge_step: float) -> PackedVector3Array:
 	var local := PackedVector3Array()
 	if shape is ConcavePolygonShape3D:
 		var faces: PackedVector3Array = shape.get_faces()
@@ -205,7 +214,7 @@ static func _surface_points(cs: CollisionShape3D) -> PackedVector3Array:
 			for e in 3:
 				var p0 := faces[t + e]
 				var p1 := faces[t + (e + 1) % 3]
-				var steps := maxi(1, ceili(p0.distance_to(p1) * cs.global_basis.get_scale().x / (SLICE * 0.4)))
+				var steps := maxi(1, ceili(p0.distance_to(p1) / edge_step))
 				for q in steps:
 					local.append(p0.lerp(p1, float(q) / steps))
 	elif shape is ConvexPolygonShape3D:
@@ -227,12 +236,7 @@ static func _surface_points(cs: CollisionShape3D) -> PackedVector3Array:
 			for y in 5:
 				for z in 5:
 					local.append(Vector3(lerpf(-h.x, h.x, x / 4.0), lerpf(-h.y, h.y, y / 4.0), lerpf(-h.z, h.z, z / 4.0)))
-	var m := cs.global_transform
-	var out := PackedVector3Array()
-	out.resize(local.size())
-	for i in local.size():
-		out[i] = m * local[i]
-	return out
+	return local
 
 ## A station's ellipse now: [middle, half-width vector, half-height vector, way to the tail (unit)].
 static func _now(st: Dictionary) -> Array:

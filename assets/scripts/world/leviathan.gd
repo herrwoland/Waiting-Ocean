@@ -20,7 +20,7 @@ class_name Leviathan extends Node3D
 ##    flank, and goes down dive_after_min..max m past her. Lights on again before it goes down: it
 ##    comes round for her (return_multiplier faster, return_judge_distance, return_turn_radius);
 ##    cut again in time and it passes return_gap off. A lit ship it missed is hunted again.
-##  - DIVE: sinks away to despawn_depth and is gone.
+##  - DIVE: sinks away to despawn_depth and, once its tail too is under, is gone.
 ## A lure (group "leviathan_lure") within lure_range draws it while the ship is dark.
 ## Swallowing: the ship touching its MouthZone (at the end of the throat) is caught there and
 ## carried with it from then on; nothing ever moves the player, who stays aboard her like on any
@@ -198,6 +198,8 @@ var _jaw_t := 0.0
 var _colliders: Array[Node3D] = []
 var _collider_bones: Array[int] = []
 var _collider_offsets: Array[Transform3D] = []
+var _shapes: Array[CollisionShape3D] = [] # every shape of the body colliders, and the box round each
+var _shape_boxes: Array[AABB] = []
 var _rng := RandomNumberGenerator.new()
 var _fed := false # it caught the ship or the player is in its mouth
 var _ship_held := false
@@ -210,6 +212,10 @@ var _fade_t := -1.0 # s into the fade to black (< 0: not started)
 var _died := false
 var _fade: ColorRect
 var _splash: LeviathanSplash # the water its body throws about
+
+## Before its bodies reach the physics engine (they enter the tree after it does).
+func _enter_tree() -> void:
+	_bake_stretched_shapes()
 
 func _ready() -> void:
 	_k = body_length / MODEL_LENGTH
@@ -382,6 +388,9 @@ func _process_hunt(d: float) -> float:
 	if state == State.HUNT and d > lunge_distance and _facing() > PI / 6.0 and _turn_circle_gap() < 0.0:
 		_set_state(State.RUNUP)
 		return speed
+	if _ship_in_mouth():
+		_curve_target = 0.0 # she is in its mouth: straight on, until she is at its throat
+		return speed
 	# steer for where she will be by the time it gets there
 	var t := minf(d / maxf(_speed, 1.0), 20.0)
 	var to := ship.global_position + _ship_vel * t - global_position
@@ -420,7 +429,7 @@ func _process_passed() -> void:
 ## Returns true once it is gone.
 func _process_dive(delta: float) -> bool:
 	_climb_to(-sink_speed, delta, 0.6)
-	if global_position.y < _sea() - despawn_depth and (_fade_t < 0.0 or _died):
+	if global_position.y < _sea() - despawn_depth and _body_under() and (_fade_t < 0.0 or _died):
 		if _ship_held:
 			# she stays down there with it, out of sight, until the morning gives her back
 			ship.visible = false
@@ -433,6 +442,17 @@ func _process_dive(delta: float) -> bool:
 		queue_free()
 		return true
 	return false
+
+## All of it is under the sea, by `margin` m: nothing of it is left in sight to vanish. Its tail
+## follows the head down a long way behind (and stands tall), so the head is far deeper by then.
+func _body_under(margin := 15.0) -> bool:
+	var limit := _sea() - margin
+	for i in _shapes.size():
+		var at := _shapes[i].global_transform
+		for corner in 8:
+			if (at * _shape_boxes[i].get_endpoint(corner)).y > limit:
+				return false
+	return true
 
 ## The ship's power changed.
 func _on_lights() -> void:
@@ -713,6 +733,10 @@ func _find_spine() -> void:
 					_collider_bones.append(bone)
 					_collider_offsets.append((sk.global_transform * sk.get_bone_global_rest(bone)).affine_inverse() * c.global_transform)
 					(c as Node3D).top_level = true
+					for cs in c.get_children():
+						if cs is CollisionShape3D and cs.shape:
+							_shapes.append(cs)
+							_shape_boxes.append((cs.shape as Shape3D).get_debug_mesh().get_aabb())
 		var to_root := global_transform.affine_inverse() * sk.global_transform
 		while b >= 0:
 			_spine.append(b)
@@ -856,6 +880,10 @@ func _ship2() -> Vector2:
 func _mouth_to_ship() -> float:
 	return _pos2().distance_to(_ship2())
 
+## She is inside its mouth (not yet caught at its throat).
+func _ship_in_mouth() -> bool:
+	return _in_area(_mouth_inside if _mouth_inside else _mouth_zone, ship.global_position)
+
 ## She is in front of its mouth.
 func _ahead() -> bool:
 	return (_ship2() - _pos2()).dot(_flat2(_yaw)) > 0.0
@@ -936,6 +964,31 @@ func _make_bodies_move() -> void:
 		body.get_parent().remove_child(body)
 		body.free()
 
+## The same goes for BodyColliders: a capsule, cylinder or sphere stretched more one way than
+## another (to fit the body) can't be stretched so by the physics engine, which would even the
+## stretch out. Each is rebuilt as a hull of its stretched surface, so it collides as it is drawn.
+func _bake_stretched_shapes() -> void:
+	var holder := get_node_or_null(^'BodyColliders')
+	if holder == null:
+		return
+	for cs: CollisionShape3D in holder.find_children('*', 'CollisionShape3D', true, false):
+		var shape := cs.shape
+		if not (shape is CapsuleShape3D or shape is CylinderShape3D or shape is SphereShape3D):
+			continue
+		var stretch := cs.basis.get_scale().abs()
+		if maxf(stretch.x, maxf(stretch.y, stretch.z)) < minf(stretch.x, minf(stretch.y, stretch.z)) * 1.01:
+			continue
+		var points := LeviathanSplash.shape_points(shape, 1.0)
+		for i in points.size():
+			points[i] *= stretch
+		var hull := ConvexPolygonShape3D.new()
+		hull.points = points
+		cs.shape = hull
+		var turn := cs.basis.orthonormalized() # its turn alone, the stretch now in the hull
+		if turn.determinant() < 0.0:
+			turn.x = -turn.x # mirrored: the same shape, these being alike on both sides
+		cs.basis = turn
+
 ## The shape with `xf` (position, turn and any stretch) built into its points; null for shapes
 ## made of no points (box, sphere...), which keep a transform instead.
 func _bake_shape(shape: Shape3D, xf: Transform3D) -> Shape3D:
@@ -985,19 +1038,26 @@ func _play(p: AudioStreamPlayer3D) -> void:
 	if p and p.stream:
 		p.play()
 
-## Placeholder sounds, made here, for any player still without a stream (see SOUNDS.md).
+## Placeholder sounds for any player still without a stream (see SOUNDS.md).
 func _fill_sounds() -> void:
-	if _call_sound and _call_sound.stream == null:
-		_call_sound.stream = _make_call()
-	if _surface_sound and _surface_sound.stream == null:
-		_surface_sound.stream = _make_noise(7.0, 0.02, false)
-	if _suction_sound and _suction_sound.stream == null:
-		_suction_sound.stream = _make_noise(4.0, 0.05, true)
+	for sound: AudioStreamPlayer3D in [_call_sound, _surface_sound, _suction_sound]:
+		if sound and sound.stream == null:
+			warm_sounds()
+			sound.stream = _placeholder_sounds[sound.name]
+
+static var _placeholder_sounds := {} # by the name of the player they are for; made once a game
+
+## Makes the placeholder sounds, once. It takes a moment (~60 ms): LeviathanEncounter calls this as
+## the game loads, so it is not paid as a stutter when the creature appears.
+static func warm_sounds() -> void:
+	if _placeholder_sounds.is_empty():
+		_placeholder_sounds = {&'CallSound': _make_call(), &'SurfaceSound': _make_noise(7.0, 0.02, false),
+				&'SuctionSound': _make_noise(4.0, 0.05, true)}
 
 const RATE := 22050
 
 ## A long, low moan, falling and rising, like something singing very far down.
-func _make_call() -> AudioStreamWAV:
+static func _make_call() -> AudioStreamWAV:
 	var seconds := 5.0
 	var frames := int(RATE * seconds)
 	var data := PackedByteArray()
@@ -1014,7 +1074,7 @@ func _make_call() -> AudioStreamWAV:
 	return _wav(data, false)
 
 ## Low rushing water: filtered noise (`smooth` = one-pole filter weight; lower = deeper).
-func _make_noise(seconds: float, smooth: float, loop: bool) -> AudioStreamWAV:
+static func _make_noise(seconds: float, smooth: float, loop: bool) -> AudioStreamWAV:
 	var frames := int(RATE * seconds)
 	var data := PackedByteArray()
 	data.resize(frames * 2)
@@ -1028,7 +1088,7 @@ func _make_noise(seconds: float, smooth: float, loop: bool) -> AudioStreamWAV:
 		data.encode_s16(i * 2, int(clampf(y * 6.0 * env, -1.0, 1.0) * 20000.0))
 	return _wav(data, loop)
 
-func _wav(data: PackedByteArray, loop: bool) -> AudioStreamWAV:
+static func _wav(data: PackedByteArray, loop: bool) -> AudioStreamWAV:
 	var wav := AudioStreamWAV.new()
 	wav.format = AudioStreamWAV.FORMAT_16_BITS
 	wav.mix_rate = RATE
