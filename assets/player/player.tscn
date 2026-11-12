@@ -5,7 +5,6 @@
 [ext_resource type="Shader" uid="uid://b6okysbp05jgo" path="res://assets/shaders/particles/bubbles.gdshader" id="2_m2mll"]
 [ext_resource type="Texture2D" uid="uid://dtm5tyuh2slqt" path="res://assets/water/sea_spray.png" id="2_v2miy"]
 [ext_resource type="Shader" uid="uid://bikiihl7insv7" path="res://assets/shaders/particles/water_speck.gdshader" id="3_hai6l"]
-[ext_resource type="Script" uid="uid://lnixgqedq5ji" path="res://assets/player/inspection_controller.gd" id="3_inspect"]
 [ext_resource type="Script" uid="uid://c4nwfe56kuued" path="res://assets/player/oxygen_controller.gd" id="4_oxygen"]
 [ext_resource type="Shader" uid="uid://b2rcikvib8wn8" path="res://assets/shaders/post/oxygen_overlay.gdshader" id="5_oxyshader"]
 [ext_resource type="Script" uid="uid://dbs8itod2p6jf" path="res://assets/player/carry_controller.gd" id="6_carry"]
@@ -120,14 +119,6 @@ floor_max_angle = 1.2217305
 script = ExtResource("1_player")
 sink_speed = 0.5
 
-[node name="InspectionController" type="Node" parent="." unique_id=899785788 node_paths=PackedStringArray("player", "camera", "socket", "overlay", "item_label")]
-script = ExtResource("3_inspect")
-player = NodePath("..")
-camera = NodePath("../Head/Camera3D")
-socket = NodePath("../Head/Camera3D/InspectSocket")
-overlay = NodePath("../InspectOverlay")
-item_label = NodePath("../InspectOverlay/ItemName")
-
 [node name="OxygenController" type="Node" parent="." unique_id=1983899619 node_paths=PackedStringArray("player", "overlay_rect", "heartbeat_player", "breath_bubbles")]
 script = ExtResource("4_oxygen")
 player = NodePath("..")
@@ -160,9 +151,6 @@ target_position = Vector3(0, 0, -2.5)
 collision_mask = 4
 collide_with_areas = true
 debug_shape_custom_color = Color(0.8835159, 0.06592726, 0, 1)
-
-[node name="InspectSocket" type="Marker3D" parent="Head/Camera3D" unique_id=812967859]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.55)
 
 [node name="CarrySocket" type="Marker3D" parent="Head/Camera3D" unique_id=429615435]
 transform = Transform3D(1, 0, 0, 0, 0.16443092, -0.9863925, 0, 0.9863925, 0.16443092, 0.13788526, -0.33844852, -0.82057154)
@@ -205,43 +193,6 @@ size_max = 0.03
 rise_speed = 1.5
 wobble = 0.6
 spawn_radius = 0.6
-
-[node name="InspectOverlay" type="CanvasLayer" parent="." unique_id=1850755420]
-visible = false
-
-[node name="Dim" type="ColorRect" parent="InspectOverlay" unique_id=1770988465]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-mouse_filter = 2
-color = Color(0, 0, 0, 0.55)
-
-[node name="ItemName" type="Label" parent="InspectOverlay" unique_id=2094335206]
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -150.0
-offset_top = -58.0
-offset_right = 150.0
-offset_bottom = -38.0
-horizontal_alignment = 1
-
-[node name="InspectHint" type="Label" parent="InspectOverlay" unique_id=1187296536]
-modulate = Color(1, 1, 1, 0.45)
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -200.0
-offset_top = -32.0
-offset_right = 200.0
-offset_bottom = -14.0
-theme_type_variation = &"HeaderLabel"
-text = "drag — turn    scroll — closer    E — put away"
-horizontal_alignment = 1
 
 [node name="OxygenOverlay" type="CanvasLayer" parent="." unique_id=2132335407]
 layer = -2

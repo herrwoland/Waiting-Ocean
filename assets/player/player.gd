@@ -36,7 +36,8 @@ enum State { WALK, SWIM, PILOT, OPERATE, CLIMB }
 @export_range(-90.0, 90.0, 0.5) var lock_wrist_tilt := 0.0
 @export_group('')
 @export var mouse_sensitivity: float = 0.0025
-@export var invert_look := false # mouse up looks down (settings menu: Controls)
+@export var invert_look := false # mouse/stick up looks down (settings menu: Controls)
+@export var pad_look_speed: float = 2.5 # radians/sec with the right stick all the way over (settings: Controller Look Speed)
 @export var turn_speed: float = 2.0 # radians/sec, for keyboard look (Q/R or arrow keys), eg. over a remote desktop
 @export var look_speed: float = 1.5 # radians/sec, for keyboard look up/down (arrow keys)
 ## On a ladder, how far (degrees) the view can turn from it either way, and from where the turn
@@ -75,12 +76,11 @@ var piloted_ship: Node = null
 var helm_marker: Node3D = null
 var station: Node = null # the mounted station (eg. searchlight) we are operating
 var hovered_interactable: Object = null
-var inspecting: bool = false # set by InspectionController; freezes movement and look
+var controls_frozen: bool = false # eg. by the ending cutscene: no moving or looking
 var captured: bool = false # in a hunter's jaws; the CreatureDirector drives our position
 ## Drowned and limp (see OxygenController): no control, the body just sinks.
 var unconscious: bool = false
 var unconscious_sink_speed: float = 0.6
-var interact_cooldown_until_msec: int = 0
 ## Ship whose deck is under our feet. Its collision is made of StaticBody3D pieces parented
 ## to the hull's RigidBody3D, so the physics engine sees them teleport rather than move and
 ## carries us nowhere: we have to travel with the deck ourselves or it slides out from under us.
@@ -145,6 +145,7 @@ const GASP_AFTER_SECONDS := 4.0 # dives shorter than this surface without a gasp
 @export_range(0.05, 3.0, 0.05) var plunge_burst_seconds: float = 0.5
 
 func _ready() -> void:
+	InputBindings.setup() # the player's own keys and the controller's, before anything reads them
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	var camera_shake := CameraShake.new() # answers EventBus.camera_shake_requested
 	camera_shake.name = &'CameraShake'
@@ -254,8 +255,8 @@ func _update_interact_hover(from_helm := false) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if unconscious:
 		return
-	if inspecting:
-		return # the InspectionController owns input while an item is held up
+	if controls_frozen:
+		return
 	if state == State.OPERATE:
 		_station_input(event)
 		return
@@ -266,7 +267,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		camera.rotation.x -= event.relative.y * mouse_sensitivity * (-1.0 if invert_look else 1.0)
 		camera.rotation.x = clampf(camera.rotation.x, -PI / 2.0, PI / 2.0)
 	elif event.is_action_pressed(&'interact') and not captured:
-		_try_interact(event is InputEventKey)
+		_try_interact(event is InputEventKey or event is InputEventJoypadButton)
 
 ## While captured the body is dragged by the creature: controls and collisions
 ## are off, but the head is free to look around on the way down.
@@ -285,7 +286,7 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3(0.0, -unconscious_sink_speed, 0.0)
 		move_and_slide() # Limp: drift down until the sea floor stops us.
 		return
-	if inspecting:
+	if controls_frozen:
 		velocity = Vector3.ZERO
 		move_and_slide()
 		return
@@ -311,17 +312,21 @@ func _physics_process(delta: float) -> void:
 
 	_keep_eyes_clear_of_waterline(delta)
 
+## Looking with the turn/look keys and the controller's right stick (radians/sec).
 func _process_turn_keys(delta: float) -> void:
-	var turn := Input.get_action_strength(&'turn_left') - Input.get_action_strength(&'turn_right')
-	var pitch := Input.get_action_strength(&'look_up') - Input.get_action_strength(&'look_down')
+	var turn := (Input.get_action_strength(&'turn_left') - Input.get_action_strength(&'turn_right')) * turn_speed
+	var pitch := (Input.get_action_strength(&'look_up') - Input.get_action_strength(&'look_down')) * look_speed
+	var stick := InputBindings.pad_look() * pad_look_speed
+	turn -= stick.x
+	pitch -= stick.y * (-1.0 if invert_look else 1.0)
 	if state == State.OPERATE:
 		if turn != 0.0 or pitch != 0.0:
-			station.aim(turn * turn_speed * delta, pitch * look_speed * delta)
+			station.aim(turn * delta, pitch * delta)
 		return
 	if turn != 0.0:
-		_turn_head(turn * turn_speed * delta)
+		_turn_head(turn * delta)
 	if pitch != 0.0:
-		camera.rotation.x = clampf(camera.rotation.x + pitch * look_speed * delta, -PI / 2.0, PI / 2.0)
+		camera.rotation.x = clampf(camera.rotation.x + pitch * delta, -PI / 2.0, PI / 2.0)
 
 ## Turns the view (radians, > 0 to the left). Holding on to a ladder we can't turn all the way
 ## round: past ladder_look_soft from the ladder the turn gets heavier, and it stops at
@@ -705,8 +710,6 @@ func _try_interact(from_key := false) -> void:
 		elif from_key:
 			exit_pilot()
 		return
-	if Time.get_ticks_msec() < interact_cooldown_until_msec:
-		return # eg. the press that just closed an inspection
 	if carry_controller.is_carrying():
 		carry_controller.drop() # hands full: interact always means "put it down"
 		return
@@ -795,10 +798,11 @@ func release_controls() -> void:
 func _station_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		station.aim(-event.relative.x * mouse_sensitivity, -event.relative.y * mouse_sensitivity)
-	elif event is InputEventMouseButton and event.is_action_pressed(&'interact'):
+	elif (event is InputEventMouseButton or event is InputEventJoypadButton) and event.is_action_pressed(&'interact'):
 		if station.has_method(&'toggle'):
 			station.toggle() # the click that took hold is spent already; the next one flips the switch
-	# Let go with jump or the interact key -- not the mouse button, which also means interact.
+	# Let go with jump or the interact key -- not the mouse button (or the controller's interact
+	# button: a controller lets go with jump), which also mean interact.
 	elif event.is_action_pressed(&'jump') or (event is InputEventKey and event.is_action_pressed(&'interact')):
 		exit_station()
 		get_viewport().set_input_as_handled()

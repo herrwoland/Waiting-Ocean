@@ -41,6 +41,15 @@ func _center_window() -> void:
 
 func _ready() -> void:
 	if Engine.is_editor_hint(): return
+	InputBindings.setup() # the pause action and the player's saved keys/controller
+	# Main pauses with the game, so the menu keys listen from a node that never does. First
+	# child: input reaches it after the menus (eg. after a Key Bindings slot took the Esc).
+	var menu_keys := MenuKeys.new()
+	menu_keys.name = &'MenuKeys'
+	menu_keys.process_mode = Node.PROCESS_MODE_ALWAYS
+	menu_keys.handler = _menu_input
+	add_child(menu_keys)
+	move_child(menu_keys, 0)
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	start_screen.get_node('VBoxContainer/PlayButton').pressed.connect(_on_play_pressed)
@@ -94,13 +103,20 @@ func _physics_process(delta: float) -> void:
 	$OceanAudioPlayer.volume_db = lerpf(-30.0, 15.0, minf(total_wind_speed/15.0, 1.0))
 	$WindAudioPlayer.volume_db = lerpf(5.0, -30.0, minf(total_wind_speed/15.0, 1.0))
 
-func _input(event: InputEvent) -> void:
+## Passes input on while the game is paused (see _ready).
+class MenuKeys extends Node:
+	var handler: Callable
+	func _input(event: InputEvent) -> void:
+		handler.call(event)
+
+func _menu_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&'toggle_imgui'):
 		should_render_imgui = not should_render_imgui
 	elif event.is_action_pressed(&'toggle_fullscreen'):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED else DisplayServer.WINDOW_MODE_WINDOWED)
 		settings_menu.save_settings()
-	elif event.is_action_pressed(&'ui_cancel'):
+	# Esc is both; a controller's B only backs out of menus, its Start pauses and unpauses.
+	elif event.is_action_pressed(&'ui_cancel') or event.is_action_pressed(&'pause'):
 		if Console.is_visible():
 			pass # the console closes on Esc itself
 		elif settings_menu.visible:
@@ -109,10 +125,20 @@ func _input(event: InputEvent) -> void:
 			pass
 		elif pause_menu.visible:
 			_on_resume_pressed()
-		else:
+		elif event.is_action_pressed(&'pause'):
 			pause_menu.visible = true
 			get_tree().paused = true
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+			if not event is InputEventMouseButton:
+				pause_menu.get_node('VBoxContainer/ResumeButton').grab_focus()
+	elif _is_key_or_pad(event) and get_viewport().gui_get_focus_owner() == null:
+		# Menus without a mouse: the first key or controller press puts focus on the first button.
+		for menu: CanvasLayer in [start_screen, pause_menu]:
+			if menu.visible:
+				menu.get_node('VBoxContainer').get_child(1).grab_focus() # under the title
+
+func _is_key_or_pad(event: InputEvent) -> bool:
+	return (event is InputEventKey or event is InputEventJoypadButton) and event.is_pressed()
 
 func imgui_text_tooltip(title : String, tooltip : String) -> void:
 	ImGui.Text(title); if ImGui.IsItemHovered() and not tooltip.is_empty(): ImGui.SetTooltip(tooltip)

@@ -40,7 +40,7 @@ func play_ending(fish: Node3D, player: Node3D) -> void:
 	_ending_active = true
 
 	# Take control away from the player, and ride the fish with a chase camera.
-	player.inspecting = true
+	player.controls_frozen = true
 	player.set_physics_process(false)
 	player.visible = false
 

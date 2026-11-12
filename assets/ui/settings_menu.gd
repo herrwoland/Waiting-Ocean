@@ -1,6 +1,6 @@
 extends CanvasLayer
-## Settings menu: a short list of sections (Graphics, Brightness, Controls, Audio), each its own
-## page that fits without scrolling. Every setting is a SettingRow ("name   < value >") changed
+## Settings menu: a short list of sections (Graphics, Brightness, Controls, Key Bindings, Audio),
+## each its own page that fits without scrolling. Every setting is a SettingRow ("name   < value >") changed
 ## the same way with mouse, keys or pad. Changes show at once; Apply keeps them, Discard puts the
 ## page back as it was. Esc on a page applies. Values persist to user://settings.cfg.
 
@@ -25,6 +25,7 @@ const CONFIG_SECTIONS := {
 	"mesh_quality": "graphics", "ps1_mode": "graphics", "water_effects": "graphics",
 	"lens_drops": "graphics",
 	"mouse_sensitivity": "controls", "fov": "controls", "invert_look": "controls",
+	"pad_look_speed": "controls",
 	"master_volume": "audio", "sfx_volume": "audio", "music_volume": "audio",
 }
 
@@ -33,7 +34,8 @@ const PAGES: Array[Dictionary] = [
 	{"title": "Graphics", "settings": ["fullscreen", "vsync", "fps_limit", "ps1_mode",
 		"wave_resolution", "mesh_quality", "water_effects", "lens_drops"]},
 	{"title": "Brightness", "settings": ["brightness"]},
-	{"title": "Controls", "settings": ["mouse_sensitivity", "invert_look", "fov"]},
+	{"title": "Controls", "settings": ["mouse_sensitivity", "pad_look_speed", "invert_look", "fov"]},
+	{"title": "Key Bindings", "settings": [], "bindings": true}, # rows from InputBindings
 	{"title": "Audio", "settings": ["master_volume", "sfx_volume", "music_volume"]},
 ]
 
@@ -47,6 +49,11 @@ var _page := -1 # open page (index into PAGES), -1 = the section list
 var _page_before := {} # the open page's values when it opened, for Discard
 var _section_buttons: Array[Button] = []
 var _using_keys := false # last input came from keys/pad: keep a visible focus for them
+var _binding_rows: Array[BindingRow] = []
+var _bindings_before := {} # InputBindings.snapshot() when the Key Bindings page opened
+var _waiting_row: BindingRow # waiting for a key/button to bind, or null
+var _waiting_slot := 0
+var _bindings_header: HBoxContainer
 
 @onready var title_label: Label = %Title
 @onready var sections_box: VBoxContainer = %Sections
@@ -54,6 +61,8 @@ var _using_keys := false # last input came from keys/pad: keep a visible focus f
 @onready var rows_box: VBoxContainer = %Rows
 @onready var brightness_extra: Control = %BrightnessExtra
 @onready var brightness_preview: Control = %BrightnessPreview
+@onready var defaults_button: Button = %DefaultsButton
+@onready var bindings_page: Control = %Bindings
 
 func _ready() -> void:
 	for i in PAGES.size():
@@ -61,6 +70,7 @@ func _ready() -> void:
 	_section_buttons.append(_section_button("Back", _close))
 	%ApplyButton.pressed.connect(_apply_page)
 	%DiscardButton.pressed.connect(_discard_page)
+	defaults_button.pressed.connect(_reset_bindings)
 
 	var tenths := func(v: float) -> String: return str(roundi(v * 10.0))
 	_add_row("fullscreen", SettingRow.toggle("Fullscreen"))
@@ -79,12 +89,26 @@ func _ready() -> void:
 		func(v: float) -> String: return str(roundi(v * 100.0))))
 	_add_row("mouse_sensitivity", SettingRow.slider("Mouse Sensitivity", 0.5, 10.0, 0.25,
 		func(v: float) -> String: return "%.2f" % v))
+	_add_row("pad_look_speed", SettingRow.slider("Controller Look Speed", 0.5, 6.0, 0.25,
+		func(v: float) -> String: return "%.2f" % v))
 	_add_row("invert_look", SettingRow.toggle("Invert Look"))
 	_add_row("fov", SettingRow.slider("Field of View", 50.0, 110.0, 1.0,
 		func(v: float) -> String: return str(roundi(v))))
 	_add_row("master_volume", SettingRow.slider("Master Volume", 0.0, 1.0, 0.1, tenths))
 	_add_row("sfx_volume", SettingRow.slider("Sound Effects", 0.0, 1.0, 0.1, tenths))
 	_add_row("music_volume", SettingRow.slider("Music", 0.0, 1.0, 0.1, tenths))
+
+	InputBindings.setup()
+	_bindings_header = BindingRow.header(_slot_titles())
+	%BindingsHeader.add_child(_bindings_header)
+	for row in InputBindings.ROWS:
+		var binding_row := BindingRow.make(row.id, row.name)
+		binding_row.rebind_requested.connect(_on_rebind_requested)
+		%BindingRows.add_child(binding_row)
+		_binding_rows.append(binding_row)
+
+func _slot_titles() -> Array[String]:
+	return ["Key", "Alt Key", InputBindings.family_name()]
 
 func _section_button(text: String, action: Callable) -> Button:
 	var button := Button.new()
@@ -145,6 +169,7 @@ func _current_values() -> Dictionary:
 		"mouse_sensitivity": player.mouse_sensitivity * 1000.0,
 		"fov": player.camera.fov,
 		"invert_look": player.invert_look,
+		"pad_look_speed": player.pad_look_speed,
 		"master_volume": _bus_volume(&'Master'),
 		"sfx_volume": _bus_volume(&'SFX'),
 		"music_volume": _bus_volume(&'Music'),
@@ -179,6 +204,7 @@ func _apply(key: String) -> void:
 		"mouse_sensitivity": player.mouse_sensitivity = value / 1000.0
 		"fov": player.camera.fov = value
 		"invert_look": player.invert_look = value
+		"pad_look_speed": player.pad_look_speed = value
 		"master_volume": _set_bus_volume(&'Master', value)
 		"sfx_volume": _set_bus_volume(&'SFX', value)
 		"music_volume": _set_bus_volume(&'Music', value)
@@ -206,24 +232,74 @@ func _open_page(index: int) -> void:
 		_rows[key].visible = key in keys
 		_rows[key].set_value(_values[key])
 	brightness_extra.visible = "brightness" in keys
+	var bindings: bool = PAGES[index].get("bindings", false)
+	bindings_page.visible = bindings
+	defaults_button.visible = bindings
+	if bindings:
+		_bindings_before = InputBindings.snapshot()
+		_refresh_bindings()
+		%BindingRows.get_parent().set_deferred(&'scroll_vertical', 0) # always open at the top
 	_page_before = {}
 	for key in keys:
 		_page_before[key] = _values[key]
 	sections_box.visible = false
 	page_box.visible = true
 	if _using_keys:
-		_rows[keys[0]].grab_focus()
+		_first_on_page().grab_focus()
+
+func _first_on_page() -> Control:
+	var keys: Array = PAGES[_page].settings
+	return _rows[keys[0]] if not keys.is_empty() else _binding_rows[0]
 
 func _apply_page() -> void:
+	_stop_waiting()
 	save_settings()
+	InputBindings.save()
 	_show_sections(_page)
 
 func _discard_page() -> void:
+	_stop_waiting()
 	for key in _page_before:
 		if _values[key] != _page_before[key]:
 			_values[key] = _page_before[key]
 			_apply(key)
+	if PAGES[_page].get("bindings", false):
+		InputBindings.restore(_bindings_before)
 	_show_sections(_page)
+
+# --- Key bindings ---
+
+func _refresh_bindings() -> void:
+	var titles := _slot_titles()
+	for i in titles.size():
+		_bindings_header.get_child(i + 1).text = titles[i]
+	for row in _binding_rows:
+		row.refresh(_waiting_slot if row == _waiting_row else -1)
+
+func _on_rebind_requested(row: BindingRow, slot: int) -> void:
+	_waiting_row = row
+	_waiting_slot = slot
+	_refresh_bindings()
+
+func _stop_waiting() -> void:
+	_waiting_row = null
+	_refresh_bindings()
+
+func _reset_bindings() -> void:
+	_stop_waiting()
+	InputBindings.reset_to_defaults()
+	_refresh_bindings()
+
+## While a slot waits, every key, click and button goes to it (none reach the menu or the game).
+func _listen_for_binding(event: InputEvent) -> void:
+	get_viewport().set_input_as_handled()
+	if InputBindings.is_cancel(event):
+		_stop_waiting()
+		return
+	var captured := InputBindings.capture(event, _waiting_slot)
+	if captured:
+		InputBindings.bind(_waiting_row.row_id, _waiting_slot, captured)
+		_stop_waiting()
 
 func _close() -> void:
 	visible = false
@@ -239,11 +315,19 @@ func back() -> void:
 func _input(event: InputEvent) -> void:
 	if not visible:
 		return
+	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
+		var before := InputBindings.family
+		InputBindings.note_device(event.device)
+		if InputBindings.family != before and _page >= 0:
+			_refresh_bindings() # a PlayStation pad was picked up: say Cross, not A
+	if _waiting_row:
+		_listen_for_binding(event)
+		return
 	if event is InputEventKey or event is InputEventJoypadButton or event is InputEventJoypadMotion:
 		if not _using_keys and event.is_pressed():
 			_using_keys = true
 			if get_viewport().gui_get_focus_owner() == null:
-				if _page >= 0: _rows[PAGES[_page].settings[0]].grab_focus()
+				if _page >= 0: _first_on_page().grab_focus()
 				else: _section_buttons[0].grab_focus()
 	elif event is InputEventMouseButton:
 		_using_keys = false
