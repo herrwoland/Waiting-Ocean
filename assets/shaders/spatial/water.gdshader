@@ -89,17 +89,30 @@ uniform float normal_strength : hint_range(0.0, 1.0) = 1.0; // Global normal str
  * water. Each glint already follows its light's colour and energy; this scales them all. */
 uniform float light_reflection : hint_range(0.0, 4.0, 0.01) = 1.0;
 
-// Light coming through the thin top of a wave (set from the Water node's Translucency dials).
+// The thin top of a wave (set from the Water node's Translucency dials): its colour turns paler
+// and greener where the sun comes through it, and what lies behind it shows through a little.
+// Nothing is added on top of the light it gets, so it never glows.
 group_uniforms translucency;
 uniform vec3 sss_color : source_color = vec3(0.16, 0.55, 0.46);
-uniform float sss_strength = 1.5;
+uniform float sss_strength = 2.0;
+uniform float sss_see_through = 0.5;
 uniform float sss_power = 4.0;
 uniform float sss_distortion = 0.3;
 uniform float sss_height_bias = 0.0;
 uniform float sss_crest_glow = 0.3;
 /** Height (m) of a typical crest above sea level, measured from the waves by water.gd. */
 uniform float sss_wave_amplitude = 1.0;
+/** Direction to the sun (world), w = how much it is up. Set every frame by water.gd. */
+uniform vec4 sss_sun = vec4(0.0);
 group_uniforms;
+
+/** How far up a typical crest this bit of wave is: 0 at sea level, 1 at the crest, squared so it
+ *  gathers into the tops where the water is thinnest. */
+float crest_amount(float height) {
+	float c = clamp((height / max(sss_wave_amplitude, 0.05) - sss_height_bias)
+			/ max(1.0 - sss_height_bias, 0.05), 0.0, 1.5);
+	return c * c;
+}
 
 group_uniforms wave_foam;
 /** Texture laid over the wave foam: bright = foam, dark = gaps. White (or none) leaves the foam
@@ -268,7 +281,7 @@ uniform int contact_foam_samples : hint_range(0, 32) = 16;
 uniform float contact_foam_strength : hint_range(0.0, 1.0, 0.01) = 0.85;
 /** Breaks the foam into patches: 0 = solid band, 1 = scattered clumps. */
 uniform float contact_foam_breakup : hint_range(0.0, 1.0, 0.01) = 0.45;
-/** World size (m) of one tile of the foam pattern. */
+/** World size (m) of one tile of the foam texture (the wave foam's foam_noise_tex). */
 uniform float contact_foam_tile_size : hint_range(1.0, 64.0, 0.1) = 7.3;
 /** How fast the foam churns. */
 uniform float contact_foam_speed : hint_range(0.0, 3.0, 0.01) = 0.35;
@@ -477,7 +490,10 @@ vec3 underwater_glow(vec3 o, vec3 d, float len) {
 
 vec3 scene_world_at(sampler2D depth_tex, vec2 uv, mat4 inv_proj, mat4 inv_view, out bool sky) {
 	float d = textureLod(depth_tex, uv, 0.0).r;
-	sky = d <= 0.0;
+	// Off the screen there is nothing to read: the depth there is whatever the far edge holds
+	// (the hull beside you), placed along a ray it never lay on -- a point a metre from the lens,
+	// which put contact foam on the water at the screen edges when standing at the rail.
+	sky = d <= 0.0 || any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)));
 	vec4 v = inv_proj * vec4(uv * 2.0 - 1.0, d, 1.0);
 	return (inv_view * vec4(v.xyz / v.w, 1.0)).xyz;
 }
@@ -490,8 +506,15 @@ vec2 contact_foam_eval(float gap, vec2 world_xz, float time) {
 	if (!contact_foam_enabled) return vec2(0.0);
 	float near = 1.0 - clamp(gap / contact_foam_width, 0.0, 1.0);
 	float t = time * contact_foam_speed;
+	// Cut from the same texture as the wave foam (foam_noise_tex), so the two read as one sea:
+	// two reads at unrelated sizes and angles drifting apart, stretched back to its contrast.
+	vec2 uv = world_xz / contact_foam_tile_size;
+	float tex = texture(foam_noise_tex, uv + t * vec2(0.125, 0.09)).r * 0.6
+			+ texture(foam_noise_tex, mat2(vec2(0.799, 0.602), vec2(-0.602, 0.799)) * uv * 0.413 + 0.37 - t * vec2(0.07, 0.11)).r * 0.4;
+	float gaps = 1.0 - clamp(0.5 + (tex - 0.5) * 1.39, 0.0, 1.0);
+	gaps = mix(0.5, gaps, foam_texture_strength); // A white (or no) texture leaves a plain band.
 	// Kept off 0 so the faint, noisy edge of the contact search never turns into foam.
-	float n = 0.3 + 0.6 * foam_gaps(world_xz / contact_foam_tile_size, t * vec2(0.125, 0.09));
+	float n = 0.3 + 0.6 * gaps;
 	// Rings: bands at fixed distances from the contact line, drifting outwards.
 	float rings = 0.5 + 0.5 * sin(gap / contact_foam_width * 9.0 - time * 2.2 + n * 3.0);
 	float shape = pow(near, 1.5) + contact_foam_rings * rings * near * (1.0 - near) * 1.5;
@@ -704,7 +727,10 @@ void fragment() {
 				vec3 q = scene_world_at(depth_texture, uv, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, sky);
 				if (sky) continue;
 				vec3 rel = q - world_frag;
-				rel.y *= rel.y > 0.0 ? 0.5 : 1.0; // Above-water parts count for less: hulls flare, waves bob.
+				// Above-water parts count for less: hulls flare, waves bob. Below the water they count
+				// for more: foam is where something breaks the surface, not over a body swimming a
+				// metre down or a hull's flank under the waterline (which lit it up around the boat).
+				rel.y *= rel.y > 0.0 ? 0.5 : 3.0;
 				contact_gap = min(contact_gap, length(rel));
 			}
 		}
@@ -785,13 +811,22 @@ void fragment() {
 	// wiped out rather than showing as a shadow.
 	vec3 screen_albedo = texture(screen_texture, look_uv, 0.0).rgb;
 	float through_water = max(VERTEX.z - world_pos.z, 0.0);
-	vec3 survives = exp(-through_water / max(depth_color_consumption, vec3(0.01))) * water_clarity;
+	// The thin top of a wave is only a metre or so of water, however far the view goes on behind
+	// it, so what stands above the sea beyond it (the sky, a hull) shows through it a little.
+	// Not what lies below the surface: from above the sea, the view through a crest meets the next
+	// wave, never the deep, and the deep must not darken it.
+	float crest = crest_amount(wave_height);
+	float behind_y = (INV_VIEW_MATRIX * vec4(world_pos.xyz, 1.0)).y;
+	bool above_sea = depth_tex <= 0.0 || behind_y > world_frag.y - wave_height;
+	float colour_path = above_sea
+			? mix(through_water, min(through_water, 1.0), clamp(crest, 0.0, 1.0) * sss_see_through)
+			: through_water;
+	vec3 survives = exp(-colour_path / max(depth_color_consumption, vec3(0.01))) * water_clarity;
 	// The sea's colour is light scattered back out of the water column, so it builds up with
 	// depth rather than simply being there. Something lying in the way cuts the column short
 	// and takes that glow with it -- which is what makes a body under the surface read as a
 	// shadow instead of fading into the same flat colour as the open sea.
-	float lit_column = 1.0 - exp(-through_water / max(water_scatter_range, 0.1));
-	vec3 depth_water_color = screen_albedo * survives + water_color.rgb * lit_column;
+	float lit_column = 1.0 - exp(-colour_path / max(water_scatter_range, 0.1));	vec3 depth_water_color = screen_albedo * survives + water_color.rgb * lit_column;
 	// ===================== shine through ===================================#
 	depth_water_color = mix(depth_water_color, contact_tint_color, contact.y);
 	depth_water_color = mix(depth_water_color, wake_tint_color, max(wake.y * wake_tint_strength, clamp(shape_foam, 0.0, 1.0) * shape_foam_tint));
@@ -822,7 +857,22 @@ void fragment() {
 	gradient *= mix(0.015, normal_strength, exp(-dist*0.0175)); // Blend normal with terrain normal as distance increases.
 	gradient.xy += shape.yz; // Water shapes are large and smooth, never faded with distance.
 	gradient.xy += rain_slope;
-	NORMAL = (VIEW_MATRIX * vec4(normalize(vec3(-gradient.x, 1.0, -gradient.y)), 0.0)).xyz;
+	vec3 world_normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
+	NORMAL = (VIEW_MATRIX * vec4(world_normal, 0.0)).xyz;
+
+	// Translucency: where the sun comes through the thin top of a wave towards the eye, the water
+	// is lit from behind by light that has lost its red, so its colour turns paler and greener.
+	// Only the colour changes; the lighting is the same as everywhere else. A little of it stays
+	// in high crests from any side. Foam covers it.
+	if (crest > 0.0 && sss_strength > 0.0) {
+		vec3 to_eye = normalize(CAMERA_POSITION_WORLD - world_frag);
+		vec3 bent = normalize(sss_sun.xyz + world_normal * sss_distortion);
+		float back = pow(clamp(dot(-to_eye, bent), 0.0, 1.0), sss_power) * sss_sun.w;
+		float thin = 0.5 - 0.5 * dot(sss_sun.xyz, world_normal); // Turned from the sun: lit from behind.
+		float shift = clamp(crest * (back * thin * thin + sss_crest_glow) * sss_strength, 0.0, 1.0);
+		float foam_cover = clamp(max(foam_factor * foam_alpha * foam_alpha, contact.x), 0.0, 1.0);
+		ALBEDO = mix(ALBEDO, sss_color, shift * (1.0 - foam_cover));
+	}
 
 	// How much of the sky each bit of wave mirrors, from its own slope: a face turned away
 	// from us catches more of it than one turned towards us.
@@ -871,18 +921,15 @@ void light() {
 		float sss_near = 0.5*pow(dot_nv, 2.0);
 		float lambertian = 0.5*dot_nl;
 		DIFFUSE_LIGHT += mix(sss_near * sss_modifier / (1.0 + light_mask) + lambertian, foam_color.rgb, foam_factor) * (1.0 - fresnel) * ATTENUATION * LIGHT_COLOR;
-
-		// --- TRANSLUCENCY ---
-		// The top of a tall wave is thin enough for light to come through it: looking towards the
-		// light, the crest glows a paler green-blue than the deep water. 0 at sea level, 1 at a
-		// typical crest. Kept out of DIFFUSE_LIGHT, which the deep albedo would tint back to blue.
-		float crest = clamp((wave_height / max(sss_wave_amplitude, 0.05) - sss_height_bias)
-				/ max(1.0 - sss_height_bias, 0.05), 0.0, 1.5);
-		crest *= crest; // Gathers it into the tops, where the water is thinnest.
-		// Light passing through towards the eye, bent a little by the wave's slope.
-		float back = pow(clamp(dot(-VIEW, normalize(LIGHT + NORMAL * sss_distortion)), 0.0, 1.0), sss_power);
-		float thin = 0.5 - 0.5 * dot(LIGHT, NORMAL); // A face turned from the light is lit from behind.
-		float sss = crest * (back * thin * thin + sss_crest_glow) * sss_strength;
-		SPECULAR_LIGHT += sss_color * sss * (1.0 - fresnel) * (1.0 - foam_factor) * ATTENUATION * LIGHT_COLOR / PI;
+		// Translucency: the light coming through the thin top of a wave lights its far side, like
+		// any light lights a surface (it falls on the colour fragment() turned it, so it is never
+		// brighter than the light itself). Lamps light crests from behind the same way.
+		float crest = crest_amount(wave_height);
+		if (crest > 0.0) {
+			float back = pow(clamp(dot(-VIEW, normalize(LIGHT + NORMAL * sss_distortion)), 0.0, 1.0), sss_power);
+			float thin = 0.5 - 0.5 * dot(LIGHT, NORMAL);
+			DIFFUSE_LIGHT += min(crest, 1.0) * back * thin * thin * sss_strength * (1.0 - fresnel) * (1.0 - foam_factor)
+					* ATTENUATION * LIGHT_COLOR;
+		}
 	}
 }

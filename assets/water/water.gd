@@ -37,16 +37,21 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 		_setup_wave_generator()
 		_update_scales_uniform()
 
-## Light coming through the thin top of a tall wave: looking towards the sun (or a lamp), the
-## crests glow a paler green-blue than the deep water. Heights are measured against the waves
-## actually running, so it works the same in a calm and in a storm.
+## The thin top of a tall wave: looking towards the sun, its colour turns paler and greener (the
+## sun comes through it and loses its red on the way), and what lies behind it shows through a
+## little. Nothing glows: it is lit like the rest of the sea. Heights are the waves' own, measured
+## against the waves actually running, so it works the same in a calm and in a storm.
 @export_group('Translucency')
-## Colour of the light through a crest. Paler and greener than the sea itself.
+## The colour a thin crest turns. Paler and greener than the sea itself.
 @export_color_no_alpha var translucency_color := Color(0.16, 0.55, 0.46) :
 	set(value): translucency_color = value; WATER_MAT.set_shader_parameter(&'sss_color', value)
-## Overall brightness of the glow (0 = off).
-@export_range(0.0, 8.0, 0.01) var translucency_strength := 1.5 :
+## How far the colour shifts, and how much the sun lights a crest from behind (0 = off).
+@export_range(0.0, 4.0, 0.01) var translucency_strength := 2.0 :
 	set(value): translucency_strength = value; WATER_MAT.set_shader_parameter(&'sss_strength', value)
+## How much the tops of the waves let through what lies behind them (the sky, a hull), as if
+## they were only a metre of water thick. 0 = as opaque as the rest of the sea.
+@export_range(0.0, 1.0, 0.01) var translucency_see_through := 0.5 :
+	set(value): translucency_see_through = value; WATER_MAT.set_shader_parameter(&'sss_see_through', value)
 ## How tightly it gathers round looking straight into the light. Higher = only when facing the
 ## sun; lower = it shows from further round to the side.
 @export_range(0.5, 16.0, 0.1) var translucency_sharpness := 4.0 :
@@ -59,7 +64,7 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 ## up, 0.5 = only the top half, negative = into the troughs.
 @export_range(-1.0, 0.9, 0.01) var translucency_height_bias := 0.0 :
 	set(value): translucency_height_bias = value; WATER_MAT.set_shader_parameter(&'sss_height_bias', value)
-## A little glow in high crests from any side, not only looking into the light.
+## A little of the colour in high crests from any side, not only looking into the sun.
 @export_range(0.0, 2.0, 0.01) var translucency_crest_glow := 0.3 :
 	set(value): translucency_crest_glow = value; WATER_MAT.set_shader_parameter(&'sss_crest_glow', value)
 
@@ -443,7 +448,7 @@ func _ready() -> void:
 
 	RenderingServer.global_shader_parameter_set(&'water_color', water_color)
 	RenderingServer.global_shader_parameter_set(&'foam_color', foam_color)
-	for p in [&'translucency_color', &'translucency_strength', &'translucency_sharpness',
+	for p in [&'translucency_color', &'translucency_strength', &'translucency_see_through', &'translucency_sharpness',
 			&'translucency_distortion', &'translucency_height_bias', &'translucency_crest_glow']:
 		set(p, get(p)) # Push the dials to the material.
 
@@ -467,6 +472,7 @@ func _process(delta : float) -> void:
 	_update_dry_volumes()
 	_update_contact_bodies(delta)
 	_update_underwater_effect()
+	_update_translucency_sun()
 	_update_see_through()
 	_update_wakes(delta)
 	_update_marine_snow()
@@ -514,6 +520,15 @@ func _on_displacement_map_data(data: PackedByteArray, cascade: int) -> void:
 	_img_prev_times[cascade] = _img_times[cascade]
 	_img_times[cascade] = _requested_times[cascade]
 	_measure_wave_amplitude(cascade)
+
+## Which way the sun is, for the translucency (light coming through a crest towards the eye).
+## w fades it out as the sun sets, or with no sun at all.
+func _update_translucency_sun() -> void:
+	var sun := Vector4.ZERO
+	if is_instance_valid(_sun) and _sun.visible:
+		var to_sun := _sun.global_basis.z.normalized() # A DirectionalLight3D shines along -Z.
+		sun = Vector4(to_sun.x, to_sun.y, to_sun.z, smoothstep(-0.02, 0.08, to_sun.y))
+	WATER_MAT.set_shader_parameter(&'sss_sun', sun)
 
 ## How high a typical crest stands, for the translucency (the shader's sss_wave_amplitude):
 ## twice the spread of the heights, from a sparse grid over each CPU cascade's map. The small

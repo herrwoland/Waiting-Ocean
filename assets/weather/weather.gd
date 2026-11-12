@@ -11,7 +11,7 @@ const PRESET_DIR := 'res://assets/weather/presets/'
 const WAVE_PROPS : Array[StringName] = [&'tile_length', &'displacement_scale', &'normal_scale',
 		&'wind_speed', &'wind_direction', &'fetch_length', &'swell', &'spread', &'detail', &'whitecap', &'foam_amount']
 const WATER_PROPS : Array[StringName] = [&'water_color', &'foam_color', &'translucency_color',
-		&'translucency_strength', &'translucency_sharpness', &'translucency_distortion',
+		&'translucency_strength', &'translucency_see_through', &'translucency_sharpness', &'translucency_distortion',
 		&'translucency_height_bias', &'translucency_crest_glow']
 const ENVIRONMENT_PROPS : Array[StringName] = [&'background_energy_multiplier', &'ambient_light_color',
 		&'ambient_light_energy', &'ambient_light_sky_contribution', &'tonemap_exposure', &'glow_intensity',
@@ -31,7 +31,7 @@ const WATER_MATERIAL_SKIP : Array[StringName] = [&'camera_submersion', &'underwa
 		&'wake_map_rect', &'water_shape_a', &'water_shape_b', &'wave_blocker_a', &'wave_blocker_b',
 		# Translucency: stored as the Water node's dials (WATER_PROPS), which set these.
 		&'sss_color', &'sss_strength', &'sss_power', &'sss_distortion', &'sss_height_bias',
-		&'sss_crest_glow', &'sss_wave_amplitude']
+		&'sss_crest_glow', &'sss_wave_amplitude', &'sss_see_through', &'sss_sun']
 ## Only continuous values are blended and stored from materials (no textures, switches or counts).
 const MATERIAL_TYPES : Array[int] = [TYPE_FLOAT, TYPE_COLOR, TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4]
 ## How often the waves are rebuilt during a transition (each rebuild is a small GPU job).
