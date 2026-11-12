@@ -1,8 +1,9 @@
 extends CanvasLayer
-## Settings menu: a short list of sections (Graphics, Brightness, Controls, Key Bindings, Audio),
-## each its own page that fits without scrolling. Every setting is a SettingRow ("name   < value >") changed
-## the same way with mouse, keys or pad. Changes show at once; Apply keeps them, Discard puts the
-## page back as it was. Esc on a page applies. Values persist to user://settings.cfg.
+## Settings menu: tabs along the top (Graphics, Brightness, Controls, Key Bindings, Audio), each a
+## page that fits without scrolling. Switch tabs with a click, LB/RB on a controller, or Q/E.
+## Every setting is a SettingRow ("name   < value >") changed the same way with mouse, keys or
+## pad. Changes show at once and stay pending across all tabs: Apply keeps them, Discard puts them
+## all back, and leaving with changes pending asks first. Values persist to user://settings.cfg.
 
 signal closed
 
@@ -29,7 +30,7 @@ const CONFIG_SECTIONS := {
 	"master_volume": "audio", "sfx_volume": "audio", "music_volume": "audio",
 }
 
-## Each page: its title and the settings on it, top to bottom.
+## Each tab: its title and the settings on it, top to bottom.
 const PAGES: Array[Dictionary] = [
 	{"title": "Graphics", "settings": ["fullscreen", "vsync", "fps_limit", "ps1_mode",
 		"wave_resolution", "mesh_quality", "water_effects", "lens_drops"]},
@@ -45,19 +46,19 @@ var retro_post: CanvasLayer
 
 var _values := {} # setting key -> current value: the one truth the rows, the game and the file follow
 var _rows := {} # setting key -> SettingRow
-var _page := -1 # open page (index into PAGES), -1 = the section list
-var _page_before := {} # the open page's values when it opened, for Discard
-var _section_buttons: Array[Button] = []
+var _page := 0 # the open tab (index into PAGES); stays put between visits
+var _values_before := {} # _values as last applied, for Discard and "anything pending?"
+var _tab_buttons: Array[Button] = []
 var _using_keys := false # last input came from keys/pad: keep a visible focus for them
+var _using_pad := false # last input came from a controller: the hints name its buttons
 var _binding_rows: Array[BindingRow] = []
-var _bindings_before := {} # InputBindings.snapshot() when the Key Bindings page opened
+var _bindings_before := {} # InputBindings.snapshot() as last applied
 var _waiting_row: BindingRow # waiting for a key/button to bind, or null
 var _waiting_slot := 0
 var _bindings_header: HBoxContainer
 
-@onready var title_label: Label = %Title
-@onready var sections_box: VBoxContainer = %Sections
-@onready var page_box: VBoxContainer = %Page
+@onready var tabs_box: HBoxContainer = %Tabs
+@onready var confirm: Control = %Confirm
 @onready var rows_box: VBoxContainer = %Rows
 @onready var brightness_extra: Control = %BrightnessExtra
 @onready var brightness_preview: Control = %BrightnessPreview
@@ -66,11 +67,31 @@ var _bindings_header: HBoxContainer
 
 func _ready() -> void:
 	for i in PAGES.size():
-		_section_buttons.append(_section_button(PAGES[i].title, _open_page.bind(i)))
-	_section_buttons.append(_section_button("Back", _close))
-	%ApplyButton.pressed.connect(_apply_page)
-	%DiscardButton.pressed.connect(_discard_page)
+		var tab := Button.new()
+		tab.text = PAGES[i].title
+		tab.focus_mode = Control.FOCUS_NONE # up/down stay on the page; LB/RB move between tabs
+		tab.pressed.connect(_open_page.bind(i))
+		tabs_box.add_child(tab)
+		_tab_buttons.append(tab)
+	%ApplyButton.pressed.connect(_apply_all)
+	%DiscardButton.pressed.connect(_discard_all)
 	defaults_button.pressed.connect(_reset_bindings)
+	%BackButton.pressed.connect(back)
+	%KeepButton.pressed.connect(func() -> void:
+		_apply_all()
+		_close())
+	%DropButton.pressed.connect(func() -> void:
+		_discard_all()
+		_close())
+	# The question keeps the focus to itself.
+	for button: Button in [%KeepButton, %DropButton]:
+		button.focus_neighbor_top = button.get_path()
+		button.focus_neighbor_bottom = button.get_path()
+		button.mouse_entered.connect(button.grab_focus)
+	%KeepButton.focus_neighbor_left = %KeepButton.get_path()
+	%DropButton.focus_neighbor_right = %DropButton.get_path()
+	%KeepButton.focus_previous = %DropButton.get_path()
+	%DropButton.focus_next = %KeepButton.get_path()
 
 	var tenths := func(v: float) -> String: return str(roundi(v * 10.0))
 	_add_row("fullscreen", SettingRow.toggle("Fullscreen"))
@@ -109,14 +130,6 @@ func _ready() -> void:
 
 func _slot_titles() -> Array[String]:
 	return ["Key", "Alt Key", InputBindings.family_name()]
-
-func _section_button(text: String, action: Callable) -> Button:
-	var button := Button.new()
-	button.text = text
-	button.pressed.connect(action)
-	button.mouse_entered.connect(button.grab_focus)
-	sections_box.add_child(button)
-	return button
 
 func _add_row(key: String, row: SettingRow) -> void:
 	_rows[key] = row
@@ -209,25 +222,20 @@ func _apply(key: String) -> void:
 		"sfx_volume": _set_bus_volume(&'SFX', value)
 		"music_volume": _set_bus_volume(&'Music', value)
 
-# --- Opening, pages and closing ---
+# --- Opening, tabs and closing ---
 
 func open() -> void:
 	_values.fullscreen = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN # F11
-	_show_sections(0)
+	_values_before = _values.duplicate()
+	_bindings_before = InputBindings.snapshot()
+	confirm.visible = false
 	visible = true
-
-func _show_sections(focus_index: int) -> void:
-	_page = -1
-	title_label.text = "Settings"
-	page_box.visible = false
-	sections_box.visible = true
-	if _using_keys:
-		_section_buttons[focus_index].grab_focus()
+	_open_page(_page)
 
 func _open_page(index: int) -> void:
+	_stop_waiting()
 	_page = index
 	var keys: Array = PAGES[index].settings
-	title_label.text = PAGES[index].title
 	for key in _rows:
 		_rows[key].visible = key in keys
 		_rows[key].set_value(_values[key])
@@ -236,36 +244,69 @@ func _open_page(index: int) -> void:
 	bindings_page.visible = bindings
 	defaults_button.visible = bindings
 	if bindings:
-		_bindings_before = InputBindings.snapshot()
 		_refresh_bindings()
 		%BindingRows.get_parent().set_deferred(&'scroll_vertical', 0) # always open at the top
-	_page_before = {}
-	for key in keys:
-		_page_before[key] = _values[key]
-	sections_box.visible = false
-	page_box.visible = true
+	for i in _tab_buttons.size():
+		_tab_buttons[i].theme_type_variation = &'SettingsTabOn' if i == index else &'SettingsTab'
+	_refresh_hints()
 	if _using_keys:
 		_first_on_page().grab_focus()
+
+## LB/RB, Q/E: the tab to the left (-1) or right (+1), wrapping round.
+func _step_page(direction: int) -> void:
+	_open_page(posmod(_page + direction, PAGES.size()))
 
 func _first_on_page() -> Control:
 	var keys: Array = PAGES[_page].settings
 	return _rows[keys[0]] if not keys.is_empty() else _binding_rows[0]
 
-func _apply_page() -> void:
+## Whether anything on any tab differs from what was last applied.
+func _has_changes() -> bool:
+	for key in _values_before:
+		if _values[key] != _values_before[key]:
+			return true
+	return not InputBindings.matches(_bindings_before)
+
+func _apply_all() -> void:
 	_stop_waiting()
 	save_settings()
 	InputBindings.save()
-	_show_sections(_page)
+	_values_before = _values.duplicate()
+	_bindings_before = InputBindings.snapshot()
 
-func _discard_page() -> void:
+func _discard_all() -> void:
 	_stop_waiting()
-	for key in _page_before:
-		if _values[key] != _page_before[key]:
-			_values[key] = _page_before[key]
+	for key in _values_before:
+		if _values[key] != _values_before[key]:
+			_values[key] = _values_before[key]
 			_apply(key)
-	if PAGES[_page].get("bindings", false):
-		InputBindings.restore(_bindings_before)
-	_show_sections(_page)
+			_rows[key].set_value(_values[key])
+	InputBindings.restore(_bindings_before)
+	_refresh_bindings()
+
+## The hints name whatever the player is holding: LB/RB (L1/R1, L/R) or Q/E beside the tabs, and
+## along the bottom what the buttons do on this tab.
+func _refresh_hints() -> void:
+	%PrevTabHint.text = _pad_name(JOY_BUTTON_LEFT_SHOULDER) if _using_pad else "Q"
+	%NextTabHint.text = _pad_name(JOY_BUTTON_RIGHT_SHOULDER) if _using_pad else "E"
+	var bindings: bool = PAGES[_page].get("bindings", false)
+	var hint: String
+	if _waiting_row and _using_pad:
+		hint = "Press a button  -  %s cancels" % _pad_name(JOY_BUTTON_START)
+	elif _waiting_row:
+		hint = "Press a key  -  Esc cancels"
+	elif bindings and _using_pad:
+		hint = "%s rebind  -  %s clear  -  %s back" % [_pad_name(JOY_BUTTON_A), _pad_name(JOY_BUTTON_Y), _pad_name(JOY_BUTTON_B)]
+	elif bindings:
+		hint = "Click or Enter rebinds  -  right-click or Delete clears  -  Esc back"
+	elif _using_pad:
+		hint = "D-pad changes  -  %s back" % _pad_name(JOY_BUTTON_B)
+	else:
+		hint = "Arrows change  -  Esc back"
+	%Footer.text = hint
+
+func _pad_name(button: JoyButton) -> String:
+	return InputBindings.event_name(InputBindings._button_event(button))
 
 # --- Key bindings ---
 
@@ -280,10 +321,14 @@ func _on_rebind_requested(row: BindingRow, slot: int) -> void:
 	_waiting_row = row
 	_waiting_slot = slot
 	_refresh_bindings()
+	_refresh_hints()
 
 func _stop_waiting() -> void:
+	if _waiting_row == null:
+		return
 	_waiting_row = null
 	_refresh_bindings()
+	_refresh_hints()
 
 func _reset_bindings() -> void:
 	_stop_waiting()
@@ -302,13 +347,20 @@ func _listen_for_binding(event: InputEvent) -> void:
 		_stop_waiting()
 
 func _close() -> void:
+	confirm.visible = false
 	visible = false
 	closed.emit()
 
-## Esc: a page applies and goes back to the list; the list closes the menu.
+## Esc / B / the Back button: closes the menu, asking first if changes are pending. With the
+## question up, backs out of the question instead.
 func back() -> void:
-	if _page >= 0:
-		_apply_page()
+	_stop_waiting()
+	if confirm.visible:
+		confirm.visible = false
+		if _using_keys: %BackButton.grab_focus()
+	elif _has_changes():
+		confirm.visible = true
+		%KeepButton.grab_focus() # even for the mouse: Enter or A answers at once
 	else:
 		_close()
 
@@ -318,19 +370,34 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
 		var before := InputBindings.family
 		InputBindings.note_device(event.device)
-		if InputBindings.family != before and _page >= 0:
+		if InputBindings.family != before:
 			_refresh_bindings() # a PlayStation pad was picked up: say Cross, not A
+			_refresh_hints()
 	if _waiting_row:
 		_listen_for_binding(event)
 		return
+	# Which device the hints speak for (a resting stick's small drift doesn't count).
+	var pad := event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.5)
+	if (pad or event is InputEventKey or event is InputEventMouseButton) and event.is_pressed() and pad != _using_pad:
+		_using_pad = pad
+		_refresh_hints()
 	if event is InputEventKey or event is InputEventJoypadButton or event is InputEventJoypadMotion:
 		if not _using_keys and event.is_pressed():
 			_using_keys = true
 			if get_viewport().gui_get_focus_owner() == null:
-				if _page >= 0: _first_on_page().grab_focus()
-				else: _section_buttons[0].grab_focus()
+				_first_on_page().grab_focus()
 	elif event is InputEventMouseButton:
 		_using_keys = false
+	# Tabs: LB/RB, Q/E or Page Up/Down.
+	if not confirm.visible and event.is_pressed() and not event.is_echo():
+		var step := 0
+		if event is InputEventJoypadButton:
+			step = {JOY_BUTTON_LEFT_SHOULDER: -1, JOY_BUTTON_RIGHT_SHOULDER: 1}.get(event.button_index, 0)
+		elif event is InputEventKey:
+			step = {KEY_Q: -1, KEY_PAGEUP: -1, KEY_E: 1, KEY_PAGEDOWN: 1}.get(event.physical_keycode, 0)
+		if step != 0:
+			get_viewport().set_input_as_handled()
+			_step_page(step)
 
 # --- Saving ---
 

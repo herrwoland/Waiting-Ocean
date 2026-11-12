@@ -17,16 +17,16 @@ grow_vertical = 2
 color = Color(0, 0, 0, 0.55)
 
 [node name="Panel" type="PanelContainer" parent="."]
-custom_minimum_size = Vector2(460, 360)
+custom_minimum_size = Vector2(520, 380)
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -230.0
-offset_top = -180.0
-offset_right = 230.0
-offset_bottom = 180.0
+offset_left = -260.0
+offset_top = -190.0
+offset_right = 260.0
+offset_bottom = 190.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -41,24 +41,34 @@ theme_override_constants/margin_bottom = 8
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="Title" type="Label" parent="Panel/Margin/VBox"]
-unique_name_in_owner = true
+[node name="TabBar" type="HBoxContainer" parent="Panel/Margin/VBox"]
 layout_mode = 2
-theme_type_variation = &"TitleLabel"
-text = "Settings"
+theme_override_constants/separation = 2
+alignment = 1
+
+[node name="PrevTabHint" type="Label" parent="Panel/Margin/VBox/TabBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(26, 0)
+layout_mode = 2
+theme_type_variation = &"HintLabel"
+text = "Q"
 horizontal_alignment = 1
 
-[node name="Sections" type="VBoxContainer" parent="Panel/Margin/VBox"]
+[node name="Tabs" type="HBoxContainer" parent="Panel/Margin/VBox/TabBar"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(200, 0)
 layout_mode = 2
-size_flags_horizontal = 4
-size_flags_vertical = 6
-theme_override_constants/separation = 6
+theme_override_constants/separation = 2
+
+[node name="NextTabHint" type="Label" parent="Panel/Margin/VBox/TabBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(26, 0)
+layout_mode = 2
+theme_type_variation = &"HintLabel"
+text = "E"
+horizontal_alignment = 1
 
 [node name="Page" type="VBoxContainer" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
-visible = false
 layout_mode = 2
 size_flags_vertical = 3
 
@@ -108,33 +118,99 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 0
 
-[node name="BindingsHint" type="Label" parent="Panel/Margin/VBox/Page/Bindings"]
-layout_mode = 2
-theme_type_variation = &"HintLabel"
-text = "Click to rebind  -  right-click or Delete clears  -  Esc cancels"
-horizontal_alignment = 1
-
 [node name="PageButtons" type="HBoxContainer" parent="Panel/Margin/VBox/Page"]
 layout_mode = 2
 size_flags_vertical = 10
-theme_override_constants/separation = 12
+theme_override_constants/separation = 10
 alignment = 1
 
 [node name="ApplyButton" type="Button" parent="Panel/Margin/VBox/Page/PageButtons"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(120, 0)
+custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 text = "Apply"
 
 [node name="DiscardButton" type="Button" parent="Panel/Margin/VBox/Page/PageButtons"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(120, 0)
+custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 text = "Discard"
 
 [node name="DefaultsButton" type="Button" parent="Panel/Margin/VBox/Page/PageButtons"]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(120, 0)
+custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 text = "Defaults"
+
+[node name="BackButton" type="Button" parent="Panel/Margin/VBox/Page/PageButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Back"
+
+[node name="Footer" type="Label" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HintLabel"
+horizontal_alignment = 1
+
+[node name="Confirm" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Dim" type="ColorRect" parent="Confirm"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.5)
+
+[node name="Box" type="PanelContainer" parent="Confirm"]
+custom_minimum_size = Vector2(260, 0)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -130.0
+offset_top = -40.0
+offset_right = 130.0
+offset_bottom = 40.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="Confirm/Box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Question" type="Label" parent="Confirm/Box/VBox"]
+layout_mode = 2
+theme_type_variation = &"HeaderLabel"
+text = "Keep your changes?"
+horizontal_alignment = 1
+
+[node name="Buttons" type="HBoxContainer" parent="Confirm/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="KeepButton" type="Button" parent="Confirm/Box/VBox/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Apply"
+
+[node name="DropButton" type="Button" parent="Confirm/Box/VBox/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Discard"

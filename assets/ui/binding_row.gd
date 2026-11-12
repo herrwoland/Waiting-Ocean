@@ -2,7 +2,7 @@ class_name BindingRow
 extends PanelContainer
 ## One line of the Key Bindings page: the action's name, then its three slots (key, alt key,
 ## controller). Click a slot, or pick it with left/right and press Enter / A, to rebind it;
-## right-click or Delete clears it. The settings menu does the listening (see `rebind_requested`).
+## right-click, Delete or a controller's Y clears it. The settings menu does the listening (see `rebind_requested`).
 
 signal rebind_requested(row: BindingRow, slot: int)
 
@@ -102,7 +102,8 @@ func _gui_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&'ui_accept'):
 		rebind_requested.emit(self, selected)
 		accept_event()
-	elif event is InputEventKey and event.pressed and event.physical_keycode in [KEY_DELETE, KEY_BACKSPACE]:
+	elif (event is InputEventKey and event.pressed and event.physical_keycode in [KEY_DELETE, KEY_BACKSPACE]) \
+			or (event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_Y):
 		InputBindings.clear(row_id, selected)
 		refresh()
 		accept_event()

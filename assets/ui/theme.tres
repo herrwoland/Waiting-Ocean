@@ -142,6 +142,33 @@ bg_color = Color(0.055, 0.075, 0.086, 1)
 border_width_top = 2
 border_color = Color(0.13, 0.17, 0.19, 1)
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_stab_on"]
+content_margin_left = 9.0
+content_margin_top = 4.0
+content_margin_right = 9.0
+content_margin_bottom = 4.0
+bg_color = Color(0.11, 0.15, 0.17, 1)
+border_width_top = 2
+border_color = Color(0.45, 0.62, 0.64, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_stab_hover"]
+content_margin_left = 9.0
+content_margin_top = 4.0
+content_margin_right = 9.0
+content_margin_bottom = 4.0
+bg_color = Color(0.08, 0.11, 0.12, 1)
+border_width_top = 2
+border_color = Color(0.28, 0.38, 0.4, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_stab_off"]
+content_margin_left = 9.0
+content_margin_top = 4.0
+content_margin_right = 9.0
+content_margin_bottom = 4.0
+bg_color = Color(0.055, 0.075, 0.086, 1)
+border_width_top = 2
+border_color = Color(0.13, 0.17, 0.19, 1)
+
 [resource]
 default_font = ExtResource("1_font")
 default_font_size = 12
@@ -187,6 +214,19 @@ OptionButton/styles/normal = SubResource("StyleBoxFlat_btn")
 OptionButton/styles/pressed = SubResource("StyleBoxFlat_btn_press")
 Panel/styles/panel = SubResource("StyleBoxFlat_panel")
 PanelContainer/styles/panel = SubResource("StyleBoxFlat_panel")
+SettingsTab/base_type = &"Button"
+SettingsTab/colors/font_color = Color(0.5, 0.58, 0.6, 1)
+SettingsTab/colors/font_hover_color = Color(0.85, 0.92, 0.93, 1)
+SettingsTab/colors/font_pressed_color = Color(0.93, 0.97, 0.97, 1)
+SettingsTab/styles/focus = SubResource("StyleBoxEmpty_none")
+SettingsTab/styles/hover = SubResource("StyleBoxFlat_stab_hover")
+SettingsTab/styles/normal = SubResource("StyleBoxFlat_stab_off")
+SettingsTab/styles/pressed = SubResource("StyleBoxFlat_stab_on")
+SettingsTabOn/base_type = &"SettingsTab"
+SettingsTabOn/colors/font_color = Color(0.93, 0.97, 0.97, 1)
+SettingsTabOn/colors/font_hover_color = Color(0.93, 0.97, 0.97, 1)
+SettingsTabOn/styles/hover = SubResource("StyleBoxFlat_stab_on")
+SettingsTabOn/styles/normal = SubResource("StyleBoxFlat_stab_on")
 SettingRow/base_type = &"PanelContainer"
 SettingRow/styles/panel = SubResource("StyleBoxEmpty_row")
 SettingRowFocus/base_type = &"PanelContainer"

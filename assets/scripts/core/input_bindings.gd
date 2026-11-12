@@ -164,6 +164,15 @@ static func _group(slot: int) -> Array:
 static func snapshot() -> Dictionary:
 	return _copy(_slots)
 
+## Whether the bindings in force are the same as a snapshot (compared by what they press, not
+## by event object).
+static func matches(saved: Dictionary) -> bool:
+	for id in _slots:
+		for slot in SLOTS:
+			if _to_dict(_slots[id][slot]) != _to_dict(saved.get(id, [null, null, null])[slot]):
+				return false
+	return true
+
 static func restore(saved: Dictionary) -> void:
 	_slots = _copy(saved)
 	apply()
