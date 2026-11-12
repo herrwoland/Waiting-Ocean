@@ -358,7 +358,9 @@ func _set_font_size(value: int) -> void:
 		rich_label.remove_theme_font_size_override("mono_font_size")
 
 
-func _exit_tree() -> void:
+## Written after every command too, not only on a clean exit: stopping the game from the editor
+## kills it without _exit_tree, and everything typed that session was lost.
+func _save_history() -> void:
 	var console_history_file := FileAccess.open("user://console_history.txt", FileAccess.WRITE)
 	if (console_history_file):
 		var write_index := 0
@@ -367,6 +369,10 @@ func _exit_tree() -> void:
 			if (write_index >= start_write_index):
 				console_history_file.store_line(line)
 			write_index += 1
+
+
+func _exit_tree() -> void:
+	_save_history()
 
 	var console_cvars_file := FileAccess.open("user://console_cvars.txt", FileAccess.WRITE)
 	if (console_cvars_file):
@@ -644,6 +650,7 @@ func _on_text_entered(new_text : String) -> void:
 
 	if not new_text.strip_edges().is_empty():
 		add_input_history(new_text)
+		_save_history()
 		print_line("[i]> " + new_text + "[/i]")
 		var text_split := parse_line_input(new_text)
 		var text_command := text_split[0]
