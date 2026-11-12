@@ -714,7 +714,12 @@ void fragment() {
 		}
 		vec2 radius_uv = 0.5 * reach * vec2(PROJECTION_MATRIX[0][0], PROJECTION_MATRIX[1][1]) / max(-VERTEX.z, 0.1);
 		radius_uv = min(radius_uv, vec2(0.08));
-		float spin = hash12(FRAGCOORD.xy) * 6.2832;
+		// How far the sample pattern is turned: one random turn per 2x2 block of pixels, and each
+		// pixel of the block a quarter step further round, so the four together cover four times
+		// the samples. They pool their results below (a 2x2 blur). One turn for every
+		// pixel draws the pattern's own lines along a hull instead; one per pixel alone was grain.
+		vec2 cell = mod(floor(FRAGCOORD.xy), 2.0);
+		float spin = hash12(floor(FRAGCOORD.xy * 0.5)) * 6.2832 + (cell.x + 2.0 * cell.y) * 0.6;
 		// Terrain is not listed: four reads at the edge of the search catch a cliff or a headland,
 		// which is all a coastline can be at this size. Small things are listed, so never missed.
 		for (int i = 0; i < 4 && !search; i++) {
@@ -722,15 +727,15 @@ void fragment() {
 			vec3 q = scene_world_at(depth_texture, SCREEN_UV + vec2(cos(angle), sin(angle)) * radius_uv, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, sky);
 			search = !sky && distance(q, world_frag) < reach * 2.0;
 		}
+		float soft = max(contact_foam_width * 0.3, 0.05);
+		float pull = 0.0;
+		float hits = 0.0;
 		if (search) {
 			// Every sample has a say, not just the nearest. Taking the nearest alone let one sample
 			// landing on something by chance put a white speck there, so a hull's band was salt
 			// grain (no TAA here to smooth it). Instead: how near the samples that found something
 			// are (a soft minimum over them), and how many found it. Too few, and it is pushed out
 			// of reach, gradually, so it changes smoothly from pixel to pixel.
-			float soft = max(contact_foam_width * 0.3, 0.05);
-			float pull = 0.0;
-			float hits = 0.0;
 			for (int i = 0; i < contact_foam_samples; i++) {
 				float k = (float(i) + 0.5) / float(contact_foam_samples);
 				float angle = float(i) * 2.39996 + spin; // Golden angle spiral.
@@ -748,11 +753,21 @@ void fragment() {
 				hits += found;
 				pull += found * exp(-d / soft);
 			}
-			if (hits > 0.0) {
-				float near_gap = -soft * log(max(pull / hits, 1e-6));
-				float cover = hits / float(max(contact_foam_samples, 1));
-				contact_gap = min(contact_gap, near_gap + (1.0 - smoothstep(0.08, 0.3, cover)) * reach);
-			}
+		}
+		// The 2x2 blur: each pixel adds what its neighbours in the block found (the GPU shades
+		// pixels in 2x2 blocks and hands their differences over for free). Out here in plain
+		// control flow, where every pixel of the block takes part.
+		vec2 side = 1.0 - 2.0 * cell; // Towards the other pixel of the block, in x and y.
+		float pull_x = pull + dFdxFine(pull) * side.x;
+		float pull_y = pull + dFdyFine(pull) * side.y;
+		float hits_x = hits + dFdxFine(hits) * side.x;
+		float hits_y = hits + dFdyFine(hits) * side.y;
+		float quad_pull = (pull + max(pull_x, 0.0) + max(pull_y, 0.0)) / 3.0;
+		float quad_hits = (hits + max(hits_x, 0.0) + max(hits_y, 0.0)) / 3.0;
+		if (quad_hits > 0.0) {
+			float near_gap = -soft * log(max(quad_pull / quad_hits, 1e-6));
+			float cover = quad_hits / float(max(contact_foam_samples, 1));
+			contact_gap = min(contact_gap, near_gap + (1.0 - smoothstep(0.08, 0.3, cover)) * reach);
 		}
 	}
 	vec2 contact = contact_foam_eval(contact_gap, world_frag.xz, TIME);
