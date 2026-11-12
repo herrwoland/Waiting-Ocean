@@ -504,7 +504,9 @@ vec3 scene_world_at(sampler2D depth_tex, vec2 uv, mat4 inv_proj, mat4 inv_view, 
  */
 vec2 contact_foam_eval(float gap, vec2 world_xz, float time) {
 	if (!contact_foam_enabled) return vec2(0.0);
-	float near = 1.0 - clamp(gap / contact_foam_width, 0.0, 1.0);
+	// A solid core out to a third of the width, fading out a third past it (the old linear ramp,
+	// raised to 1.5, left only a thin line standing once the texture had eaten in).
+	float near = 1.0 - smoothstep(0.3 * contact_foam_width, 1.3 * contact_foam_width, gap);
 	float t = time * contact_foam_speed;
 	// Cut from the same texture as the wave foam (foam_noise_tex), so the two read as one sea:
 	// two reads at unrelated sizes and angles drifting apart, stretched back to its contrast.
@@ -513,14 +515,16 @@ vec2 contact_foam_eval(float gap, vec2 world_xz, float time) {
 			+ texture(foam_noise_tex, mat2(vec2(0.799, 0.602), vec2(-0.602, 0.799)) * uv * 0.413 + 0.37 - t * vec2(0.07, 0.11)).r * 0.4;
 	float gaps = 1.0 - clamp(0.5 + (tex - 0.5) * 1.39, 0.0, 1.0);
 	gaps = mix(0.5, gaps, foam_texture_strength); // A white (or no) texture leaves a plain band.
-	// Kept off 0 so the faint, noisy edge of the contact search never turns into foam.
-	float n = 0.3 + 0.6 * gaps;
 	// Rings: bands at fixed distances from the contact line, drifting outwards.
-	float rings = 0.5 + 0.5 * sin(gap / contact_foam_width * 9.0 - time * 2.2 + n * 3.0);
-	float shape = pow(near, 1.5) + contact_foam_rings * rings * near * (1.0 - near) * 1.5;
-	// Noise eats into the band from its outer edge, leaving a solid line at the contact.
-	float threshold = n * contact_foam_breakup;
-	float foam = smoothstep(threshold, threshold + 0.2, shape);
+	float rings = 0.5 + 0.5 * sin(gap / contact_foam_width * 9.0 - time * 2.2 + gaps * 3.0);
+	float shape = near + contact_foam_rings * rings * near * (1.0 - near) * 1.5;
+	// The texture eats into the band from its outer edge, so its outline is the texture's own
+	// shapes, and a softer ramp than before: the distance from the contact search is noisy, and a
+	// hard cut turned that noise into pixels flicking on and off. Kept off 0 so the faint edge
+	// of the search never turns into foam.
+	float threshold = 0.1 + gaps * contact_foam_breakup;
+	float foam = smoothstep(threshold, threshold + 0.35, shape);
+	foam *= 1.0 - 0.35 * gaps; // The texture's gaps show through the solid core too.
 	float tint = (1.0 - smoothstep(0.0, contact_tint_width, gap)) * contact_tint_strength;
 	return vec2(clamp(foam * contact_foam_strength, 0.0, 1.0), tint);
 }
@@ -719,6 +723,14 @@ void fragment() {
 			search = !sky && distance(q, world_frag) < reach * 2.0;
 		}
 		if (search) {
+			// Every sample has a say, not just the nearest. Taking the nearest alone let one sample
+			// landing on something by chance put a white speck there, so a hull's band was salt
+			// grain (no TAA here to smooth it). Instead: how near the samples that found something
+			// are (a soft minimum over them), and how many found it. Too few, and it is pushed out
+			// of reach, gradually, so it changes smoothly from pixel to pixel.
+			float soft = max(contact_foam_width * 0.3, 0.05);
+			float pull = 0.0;
+			float hits = 0.0;
 			for (int i = 0; i < contact_foam_samples; i++) {
 				float k = (float(i) + 0.5) / float(contact_foam_samples);
 				float angle = float(i) * 2.39996 + spin; // Golden angle spiral.
@@ -731,7 +743,15 @@ void fragment() {
 				// for more: foam is where something breaks the surface, not over a body swimming a
 				// metre down or a hull's flank under the waterline (which lit it up around the boat).
 				rel.y *= rel.y > 0.0 ? 0.5 : 3.0;
-				contact_gap = min(contact_gap, length(rel));
+				float d = length(rel);
+				float found = 1.0 - smoothstep(0.5 * reach, reach, d);
+				hits += found;
+				pull += found * exp(-d / soft);
+			}
+			if (hits > 0.0) {
+				float near_gap = -soft * log(max(pull / hits, 1e-6));
+				float cover = hits / float(max(contact_foam_samples, 1));
+				contact_gap = min(contact_gap, near_gap + (1.0 - smoothstep(0.08, 0.3, cover)) * reach);
 			}
 		}
 	}
