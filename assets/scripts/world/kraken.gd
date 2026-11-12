@@ -169,8 +169,17 @@ enum FishPhase { CHASE, REEL, DRAG, SETTLE, FEED } # a giant fish in its waters:
 @export var struggle_per_press := 0.05 # grip loosened by one press, with one arm holding (divided by sqrt of the arms holding)
 @export var grip_regain := 0.12 # grip won back per second, per arm holding: at 8 presses/s one arm takes ~3.5 s, two need 10+ presses/s, three cannot be beaten
 @export var throw_speed := 6.0 # m/s the prey is flung clear when it fights free
-@export var coil_radius := 1.4 # m the tip coils round the body (loosens as they struggle)
-@export var coil_length := 6.0 # m of the tip that coils round it
+## m, half the thickness of the body it holds: the tip coils round it as tight as the arm's bones
+## let it (loosening as they struggle), and the body is held against the inside of the coil.
+@export var held_body_radius := 0.22
+@export var coil_length := 4.6 # m (model units) of the tip that coils round it (its first joint lays it flat)
+## Most a holding arm's joint may bend (degrees). The tip's bones are long: only bent this hard
+## do they close into a knot as small as a body.
+@export var hold_bend_max := 120.0
+## x how fast the coiling tip closes round the body, against the rest of the arm (about a second).
+@export var hold_coil_quick := 5.0
+## 1/s how quickly the held body turns after the coil as it turns (it goes round with the arm).
+@export var held_turn_rate := 4.0
 
 @export_group("The ship")
 @export var ship_arms := 5 # arms that grip the hull
@@ -320,6 +329,7 @@ var _catch_from := Vector3.ZERO
 var _hold_blend := 0.0
 var _carrier: KrakenArm # the arm whose coil the prey rides in
 var _hold_point := Vector3.ZERO # where the carrier swings the prey to
+var _held_turn := Basis.IDENTITY # how the held body is turned (it turns with the coil, eased)
 var _hold_dir := Vector3.UP # from its eyes to where it holds the prey, set at the catch
 var _struggle := 0.0 # 0 = gripped tight, 1 = free
 var _reach_start := -1.0 # when the first arm of this attempt reached, -1 = none
@@ -1738,9 +1748,9 @@ func _update_reaching(delta: float) -> void:
 			arm.seek_tip = reach_seek * smoothstep(0.7, 1.0, arm.reach_front) # the light tip finishes the reach, easing in
 			if arm.tip().distance_to(prey) < grab_radius:
 				arm.set_role(KrakenArm.Role.HOLD)
-				_coil(arm)
 				if not _holding:
 					_carrier = arm
+					_coil(arm) # only the arm that has them coils; the others close round them
 					_catch()
 				else:
 					_play(_grab_sound)
@@ -1789,6 +1799,7 @@ func _catch() -> void:
 	_hold_dir = (_prey_point() - _eye_position() + Vector3.UP * 6.0).normalized() # toward the catch, a little raised
 	_hold_start = _time
 	_catch_from = _player.global_position
+	_held_turn = Basis.IDENTITY
 	_hold_blend = 0.0
 	_struggle = 0.0
 	_player.set_captured(true)
@@ -1836,19 +1847,29 @@ func _update_hold(delta: float) -> void:
 	_hold_point.y = minf(_hold_point.y, _surface_y(_hold_point) - hold_min_depth)
 	# The carrier arm swings the prey about; the prey rides in its coil. As
 	# they struggle the coil loosens, visibly.
-	for arm in _arms:
-		if arm.role == KrakenArm.Role.HOLD:
-			_coil(arm)
+	_coil(_carrier) # the others only close round them: coiled, they would knot round nothing
 	_hold_blend = minf(_hold_blend + delta / 1.5, 1.0)
 	var s := _hold_blend * _hold_blend * (3.0 - 2.0 * _hold_blend)
-	var held := _carrier.coil_center() + Vector3.DOWN * 1.0 # the coil round the chest
+	# the hips into the coil, against the arm; the body turns with the coil (as it turns over, its
+	# up is kept on the side it was, never flipping), so the arm never cuts through it
+	var frame := _carrier.coil_frame(held_body_radius, _held_turn.y)
+	# eased: a coil that turns over, turns the body over with it, not in one frame
+	_held_turn = _held_turn.slerp(frame.basis.orthonormalized(), 1.0 - exp(-held_turn_rate * delta)).orthonormalized()
+	frame.basis = _held_turn
+	if &'hold_frame' in _player:
+		_player.hold_frame = frame
+	var grip := _prey_point() - _player.global_position
+	var held := frame.origin - grip
 	held.y = minf(held.y, _surface_y(held) - hold_min_depth)
 	_player.global_position = _catch_from.lerp(held, s)
 
 ## The tip coils round the held body: tighter when the grip is firm.
 func _coil(arm: KrakenArm) -> void:
-	arm.curl_from = arm.length - coil_length
-	arm.curl_rate = 1.0 / (coil_radius * (1.0 + _struggle * 0.6))
+	arm.curl_from = arm.length - coil_length * _scale
+	var i := arm.along.bsearch(arm.curl_from)
+	var r := held_body_radius + arm.radius_at(mini(i, arm.along.size() - 1))
+	arm.curl_rate = 1.0 / (r * (1.0 + _struggle * 0.6))
+	arm.curl_axis = _player.global_basis.y # round the spine, like a belt
 
 func _break_free() -> void:
 	_holding = false
@@ -1866,8 +1887,11 @@ func _break_free() -> void:
 	if state == State.BOAT or _ship_kept or _sated:
 		_player_ignored = true # busy with the ship: let them go
 
-## Where an arm aims at the player: their chest.
+## Where an arm aims at the player: round the hips, below the waist (measured on their body),
+## so the coil never closes over their view.
 func _prey_point() -> Vector3:
+	if _player.has_method(&'hold_position'):
+		return _player.hold_position()
 	return _player.global_position + Vector3.UP * 1.0
 
 func _player_beyond_leash() -> bool:
@@ -2408,7 +2432,12 @@ func _update_arms(delta: float) -> void:
 		if arm.role == KrakenArm.Role.CRAWL:
 			arm.set_tight(true, 4.0) # crawling it coils right round the stone
 		else:
-			arm.set_tight(arm.role == KrakenArm.Role.BOAT and arm.gripped)
+			if arm.role == KrakenArm.Role.HOLD and arm == _carrier:
+				arm.set_tight(true, 3.0, deg_to_rad(hold_bend_max)) # it clamps down round the body
+				arm.curl_quick = hold_coil_quick # the tip snaps shut round it
+				arm.max_tip_speed = arm_max_tip_speed * 3.0
+			else:
+				arm.set_tight(arm.role == KrakenArm.Role.BOAT and arm.gripped)
 		if arm.role == KrakenArm.Role.CRAWL:
 			arm.set_spread(deg_to_rad(85.0))
 			# a foot: it lies along the rock out to its foothold and holds it

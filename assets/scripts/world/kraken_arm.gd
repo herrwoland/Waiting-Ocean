@@ -60,6 +60,11 @@ var inertia := 0.0
 ## radians per meter (a coil of radius 1/curl_rate). -1 = no coil.
 var curl_from := -1.0
 var curl_rate := 0.0
+## x how quickly the coiling joints follow and how fast they may turn: the light tip snaps shut
+## round what it holds while the rest of the arm moves slowly.
+var curl_quick := 1.0
+## World axis the coil winds round (a held body's spine); ZERO = whichever way the joints bend.
+var curl_axis := Vector3.ZERO
 ## Reaching: the bend front, 0..1 along the arm. Joints behind it aim at the
 ## goal; joints past it stay rolled up. 1 = no front (the whole arm aims).
 var reach_front := 1.0
@@ -201,12 +206,13 @@ func configure() -> void:
 			var t := (along[k] + _segments[k] * _world * 0.5) / length
 			_limit[k] = lerpf(bend_root, bend_tip, pow(t, bend_exponent))
 			if _tight > 1.0:
-				_limit[k] = minf(_limit[k] * _tight, deg_to_rad(100.0))
+				_limit[k] = minf(_limit[k] * _tight, _tight_cap)
 
 ## Holding on, an arm clamps down: its joints may bend this much more, so it
 ## wraps tightly round what it holds instead of cutting across its corners.
 const TIGHT_FACTOR := 2.0
 var _tight := 1.0
+var _tight_cap := deg_to_rad(100.0) # the most any joint bends, clamped down
 var _spread_swing := 0.0
 ## Crawling with its crown on the rock, the arms leave the web flat out over
 ## the stone: the joint at the crown may swing this far (radians, 0 = as usual).
@@ -214,10 +220,11 @@ func set_spread(swing: float) -> void:
 	if not is_equal_approx(swing, _spread_swing):
 		_spread_swing = swing
 		configure()
-func set_tight(on: bool, factor := TIGHT_FACTOR) -> void:
+func set_tight(on: bool, factor := TIGHT_FACTOR, cap := deg_to_rad(100.0)) -> void:
 	var f := factor if on else 1.0
-	if not is_equal_approx(f, _tight):
+	if not is_equal_approx(f, _tight) or not is_equal_approx(cap, _tight_cap):
 		_tight = f
+		_tight_cap = cap
 		configure()
 
 func root() -> Vector3:
@@ -244,6 +251,8 @@ func set_role(new_role: Role) -> void:
 	set_spread(0.0)
 	seek_tip = 0.0
 	curl_from = -1.0
+	curl_axis = Vector3.ZERO
+	curl_quick = 1.0
 	reach_front = 1.0
 	idle_curl = 0.0
 	if new_role == Role.BOAT:
@@ -261,6 +270,79 @@ func coil_center() -> Vector3:
 			var radius := seg / maxf(bend, 0.01) / _world # in skeleton units
 			return skeleton.global_transform * (_pos[k] + before.z.normalized() * radius)
 	return tip()
+
+## Where a held body's middle sits in the coil as the arm really is now (world): the centre of the
+## circle through the coiled joints, if the arm is coiled as tight as the body; wider than that (its
+## bones too long to wind so small), against the inside of the coil, touching it at its middle
+## joint. body_radius: m, the half-thickness of what it holds.
+func coil_seat(body_radius: float) -> Vector3:
+	return coil_frame(body_radius, Vector3.UP).origin
+
+## The held body's place and turn in the coil as the arm really is now (world): at coil_seat(), its
+## up along the coil's axis (square to the plane the whole coil lies in), on the side of up_hint so
+## the body does not flip over -- unless the rest of the arm is well over on that side: then it
+## turns over, so the arm comes in past the feet, never through the chest or the view. Its left
+## toward where the arm comes into the coil: as the arm turns, the body turns with it.
+func coil_frame(body_radius: float, up_hint: Vector3) -> Transform3D:
+	var first := -1
+	for k in _n:
+		if along[k] + _segments[k] * _world * 0.5 > curl_from:
+			first = k
+			break
+	if curl_from < 0.0 or first < 0 or _n - first < 2:
+		return Transform3D(_upright(up_hint), coil_center())
+	var a := points[first]
+	var m_i := (first + _n) / 2
+	var b := points[m_i]
+	var c := points[_n]
+	# the circle through three points
+	var ab := b - a
+	var ac := c - a
+	var n := ab.cross(ac)
+	if n.length_squared() < 1e-6:
+		return Transform3D(_upright(up_hint), coil_center()) # still straight: not coiled yet
+	var centre := a + (n.cross(ab) * ac.length_squared() + ac.cross(n) * ab.length_squared()) / (2.0 * n.length_squared())
+	# the coil's skin nearest the centre (its bones are straight: the sides of a polygon, not a
+	# circle): wider than the body, the body is held against it there
+	var near := INF
+	var near_at := b
+	for k in range(first, _n):
+		var q := Geometry3D.get_closest_point_to_segment(centre, points[k], points[k + 1])
+		var gap := q.distance_to(centre) - radius_at(k + 1)
+		if gap < near:
+			near = gap
+			near_at = q
+	var reach := near - body_radius
+	var seat := centre if reach <= 0.0 else centre + (near_at - centre).normalized() * reach
+	# the plane the whole coil lies in (Newell: summed over its every side, not three points)
+	var up := Vector3.ZERO
+	for k in range(first, _n + 1):
+		var p := points[k] - centre
+		var q := (points[k + 1] if k < _n else points[first]) - centre
+		up += p.cross(q)
+	up = up.normalized() if up.length_squared() > 1e-8 else n.normalized()
+	if up.dot(up_hint) < 0.0:
+		up = -up
+	var arm_side := 0.0 # how far the arm is, before the coil, on the head's side
+	for k in range(maxi(first - 3, 0), first):
+		arm_side += (points[k] - centre).dot(up)
+	if arm_side > ARM_OVER_HEAD * 3.0:
+		up = -up
+	var left := (a - centre) - up * (a - centre).dot(up)
+	if left.length_squared() < 1e-6:
+		return Transform3D(_upright(up), seat)
+	left = left.normalized()
+	return Transform3D(Basis(left, up, left.cross(up)), seat)
+
+const ARM_OVER_HEAD := 1.5 # m: the arm coming into a held body's coil this far on its head's side turns it over
+
+static func _upright(up: Vector3) -> Basis:
+	var y := up.normalized()
+	var x := Vector3.FORWARD.cross(y)
+	if x.length_squared() < 1e-4:
+		x = Vector3.RIGHT
+	x = x.normalized()
+	return Basis(x, y, x.cross(y))
 
 ## Jump straight into the goal pose (a new morning: nobody saw it move).
 func snap_to_goals() -> void:
@@ -454,12 +536,16 @@ func simulate(delta: float) -> void:
 	for k in _n:
 		var u := float(k) / maxf(_n - 1, 1)
 		var w := response * lerpf(0.8, 1.3, u)
+		var top := max_joint_speed
+		if curl_from >= 0.0 and along[k] + _segments[k] * _world * 0.5 > curl_from:
+			w *= curl_quick
+			top *= curl_quick * 2.0
 		var damp := 2.0 * w * (1.0 - 0.3 * u * u) if soft else 2.0 * w
 		var acc := (_target[k] - _bend[k]) * (w * w) - _vel[k] * damp
-		_vel[k] = (_vel[k] + acc * delta).limit_length(max_joint_speed)
+		_vel[k] = (_vel[k] + acc * delta).limit_length(top)
 		# a joint bent past its limit (it gave against the stone, or held on tight a moment
 		# ago) eases back inside it at its own speed: clamped at once, the arm would jump
-		_bend[k] = (_bend[k] + _vel[k] * delta).limit_length(maxf(_limit[k], _bend[k].length() - max_joint_speed * delta))
+		_bend[k] = (_bend[k] + _vel[k] * delta).limit_length(maxf(_limit[k], _bend[k].length() - top * delta))
 	_rebuild()
 	if seek_tip > 0.0 and not pin_tip:
 		_pin_tip_to(tip_target, 1.0 - exp(-seek_tip * delta))
@@ -579,10 +665,36 @@ func _smooth_targets() -> void:
 ## reach's bend front, and the coil round a held body.
 func _lay_over_shapes() -> void:
 	if curl_from >= 0.0 or reach_front < 1.0:
+		var axis_sk := Vector3.ZERO
+		var turn := 0.0 # which way round the axis it winds: kept from the first winding joint on
+		var flattened := false
+		if curl_from >= 0.0 and curl_axis != Vector3.ZERO:
+			axis_sk = (skeleton.global_basis.inverse() * curl_axis).normalized()
 		for k in _n:
 			var mid := along[k] + _segments[k] * _world * 0.5
 			if curl_from >= 0.0 and mid > curl_from:
-				_target[k] = Vector2(minf(curl_rate * _segments[k] * _world, _limit[k]), 0.0)
+				var amount := minf(curl_rate * _segments[k] * _world, _limit[k])
+				var way := Vector2(1.0, 0.0)
+				if axis_sk != Vector3.ZERO:
+					var before := _base if k == 0 else _frames[k - 1] * _rest_local[k]
+					var d := before.transposed() * axis_sk
+					if not flattened:
+						# the first coiled joint turns the arm flat across the axis, so the rest
+						# winds round it like a belt, not up and down past it
+						flattened = true
+						var want := Vector3.UP - d * d.y # its own way on, minus the part along the axis
+						if want.length_squared() > 0.01:
+							_target[k] = _swing(want.normalized()).limit_length(_limit[k])
+							continue
+					# the bend's axis (x, z in the joint's frame) toward the coil's: the coil lies
+					# across the axis, winding round it
+					var flat := Vector2(d.x, d.z)
+					if flat.length_squared() > 0.01:
+						flat = flat.normalized()
+						if turn == 0.0:
+							turn = 1.0 if flat.dot(_bend[k]) >= 0.0 else -1.0 # the way it already bends
+						way = flat * turn
+				_target[k] = way * amount
 			elif reach_front < 1.0 and mid > maxf(reach_front, 0.5) * length:
 				_target[k] = Vector2(_limit[k] * 0.45, 0.0) # the far half stays rolled until the bend arrives
 	if idle_curl > 0.0 and curl_from < 0.0 and reach_front >= 1.0:

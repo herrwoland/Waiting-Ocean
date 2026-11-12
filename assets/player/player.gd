@@ -78,6 +78,10 @@ var station: Node = null # the mounted station (eg. searchlight) we are operatin
 var hovered_interactable: Object = null
 var controls_frozen: bool = false # eg. by the ending cutscene: no moving or looking
 var captured: bool = false # in a hunter's jaws; the CreatureDirector drives our position
+var _body: PlayerBody # our own body, if shown (see show_body)
+## Held by something that turns us with it (a coiling arm): where our hips go and how the body
+## turns (its +Y up, +Z its front), set every frame by the holder. Identity = held upright as usual.
+var hold_frame := Transform3D()
 ## Drowned and limp (see OxygenController): no control, the body just sinks.
 var unconscious: bool = false
 var unconscious_sink_speed: float = 0.6
@@ -160,6 +164,7 @@ func _ready() -> void:
 		if show_body:
 			move_child(body, -1) # after CameraShake, so the eyes place the camera last
 			body.setup(self)
+			_body = body
 		else:
 			body.queue_free()
 	_head_base_y = head.position.y
@@ -269,10 +274,18 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&'interact') and not captured:
 		_try_interact(event is InputEventKey or event is InputEventJoypadButton)
 
+## Where something that takes hold of us grips: round the hips, below the waist and out of the
+## view, measured on our own body (wherever its clip has the legs), or about there without one.
+func hold_position() -> Vector3:
+	if is_instance_valid(_body):
+		return _body.hold_position()
+	return global_position + Vector3.UP * 0.9
+
 ## While captured the body is dragged by the creature: controls and collisions
 ## are off, but the head is free to look around on the way down.
 func set_captured(caught: bool) -> void:
 	captured = caught
+	hold_frame = Transform3D()
 	collider.disabled = caught
 	_deck = null
 	velocity = Vector3.ZERO
