@@ -6,7 +6,8 @@ extends Path3D
 ## Draw its outline with this Path3D's points, seen from above: heights and curve handles are
 ## ignored and the last point joins the first. Then press Bake: it reads the sea floor under the
 ## outline (Terrain3D plus any static collision, eg. the stony beach) and stores, per texel,
-##   r: depth of the sea floor below sea level (m, negative on dry land),
+##   r: depth of the sea floor below sea level (m, negative on dry land; a hollow on land reads
+##      as filled to its brim, the height the water must climb before it can flow in),
 ##   g: distance to the shoreline (m, positive out to sea, negative inland),
 ##   b: how much of the zone applies (0 at the outline, 1 once edge_fade inside it),
 ##   a: a slow noise that staggers the waves along the coast.
@@ -109,6 +110,7 @@ func bake() -> void:
 				break
 			depth[y * w + x] = clampf(sea_level - floor_y, -50.0, DEEP) if floor_y > -INF else DEEP
 	depth = _blur(depth, w, h, 1)
+	depth = _fill_hollows(depth, w, h)
 
 	# Signed distance to the shoreline: out to sea from the nearest dry texel, inland from the
 	# nearest wet one.
@@ -239,6 +241,46 @@ static func _distance_1d(f: PackedFloat64Array) -> PackedFloat64Array:
 		while z[k + 1] < q: k += 1
 		d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]
 	return d
+
+## Hollows on land read as filled up to their brim (the lowest way in from the sea): the water
+## washing up the beach (see shore_swash) must climb that high before it can reach them, instead
+## of standing in a dip ahead of the front, cut off from the sea. Hollows below sea level with no
+## way in are land too. A priority flood from the map's border (open sea), done as repeated
+## sweeps in all four directions until nothing changes.
+func _fill_hollows(depth: PackedFloat64Array, w: int, h: int) -> PackedFloat64Array:
+	var n := w * h
+	var ground := PackedFloat64Array()
+	var level := PackedFloat64Array()
+	ground.resize(n)
+	level.resize(n)
+	for i in n:
+		ground[i] = maxf(-depth[i], 0.0) # the water can never stand lower than the sea
+		var x := i % w
+		var y := i / w
+		level[i] = ground[i] if x == 0 or y == 0 or x == w - 1 or y == h - 1 else INF
+	for sweep in 400:
+		var changed := false
+		for pass_dir in 2:
+			var start := 0 if pass_dir == 0 else n - 1
+			var step := 1 if pass_dir == 0 else -1
+			var i := start
+			for k in n:
+				var x := i % w
+				var lowest := level[i]
+				if x > 0: lowest = minf(lowest, level[i - 1])
+				if x < w - 1: lowest = minf(lowest, level[i + 1])
+				if i >= w: lowest = minf(lowest, level[i - w])
+				if i < n - w: lowest = minf(lowest, level[i + w])
+				var v := maxf(ground[i], lowest)
+				if v < level[i]:
+					level[i] = v
+					changed = true
+				i += step
+		if not changed: break
+	var out := depth.duplicate()
+	for i in n:
+		if level[i] > 0.0 and level[i] < INF: out[i] = -level[i]
+	return out
 
 ## Box blur of the given radius (texels), edges clamped.
 static func _blur(src: PackedFloat64Array, w: int, h: int, r: int) -> PackedFloat64Array:

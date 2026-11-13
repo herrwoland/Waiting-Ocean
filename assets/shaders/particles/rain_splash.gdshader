@@ -26,7 +26,7 @@ float wave_height(vec2 xz) {
 		}
 		rest = xz - d.xz;
 	}
-	return water_level + d.y + shore_wave(shore_sample(rest)).x;
+	return water_level + d.y + shore_wave(shore_sample(rest), rest).x;
 }
 
 void start() {

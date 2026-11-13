@@ -583,14 +583,16 @@ void vertex() {
 	// Shore waves (no distance fade: the CPU never fades them either). Their slope comes from two
 	// more looks half a metre away, only inside a shore zone. A calm zone calms them like any wave
 	// (a hull's calm plane already follows them, see _wave_plane in water.gd).
-	vec2 shore_wave_here = shore_wave(shore) * blocker_mask;
+	vec2 shore_wave_here = shore_wave(shore, VERTEX.xz) * blocker_mask;
 	shore_foam = shore_wave_here.y;
 	shore_slope = vec2(0.0);
 	if (shore.z > 0.0 || (shore.x < 1.0 && shore.y > -shore_b.z)) { // in the zone, or where the swash can reach
-		shore_slope = (vec2(shore_wave(shore_sample(VERTEX.xz + vec2(0.5, 0.0))).x,
-				shore_wave(shore_sample(VERTEX.xz + vec2(0.0, 0.5))).x) * blocker_mask - shore_wave_here.x) * 2.0;
+		vec2 xz_x = VERTEX.xz + vec2(0.5, 0.0);
+		vec2 xz_z = VERTEX.xz + vec2(0.0, 0.5);
+		shore_slope = (vec2(shore_wave(shore_sample(xz_x), xz_x).x,
+				shore_wave(shore_sample(xz_z), xz_z).x) * blocker_mask - shore_wave_here.x) * 2.0;
 	}
-	swash_front = shore_swash(shore);
+	swash_front = shore_swash(shore, VERTEX.xz);
 	// The swash's edge is cut per pixel (see fragment), at the true contour where its level meets
 	// the sand, not along the mesh's triangles (a zigzag). For that the mesh must stay just above
 	// the sand a little past the front: those vertices lift onto it, and the cut hides them. Far
@@ -920,8 +922,12 @@ void fragment() {
 	// Foam floats on the water: it stays as solid where the water itself thins to clear. The swash's
 	// sheet is a few cm thick, nearly clear by depth: a little sheen keeps the wet sand reading.
 	ALPHA = max(ALPHA, max(clamp(contact.x, 0.0, 1.0), swash_share * swash_sheen));
-	// On the beach, nothing above the swash's front: a sharp wet edge that follows the sand.
-	ALPHA *= 1.0 - step(-0.5, -shore_depth.x) * smoothstep(swash_front - 0.03, swash_front, behind_y);
+	// On the beach, nothing above the swash's front: a sharp wet edge that follows the sand. Where
+	// the baked (smoothed) sand is above it too, nothing either: a small dip in the sand ahead of
+	// the front would otherwise fill as a ring of water standing on its own.
+	float dry = max(smoothstep(swash_front - 0.03, swash_front, behind_y),
+			smoothstep(swash_front, swash_front + 0.03, -shore_depth.x));
+	ALPHA *= 1.0 - step(-0.5, -shore_depth.x) * dry;
 	if (ALPHA < 0.9){
 		foam_factor = clamp(foam_factor + 0.5 - ALPHA, 0.0, 1.0);
 	}

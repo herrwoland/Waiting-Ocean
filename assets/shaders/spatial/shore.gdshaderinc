@@ -6,7 +6,7 @@ global uniform sampler2D shore_map : filter_linear, repeat_disable; // r depth, 
 global uniform vec4 shore_rect; // (corner x, corner z, 1 / size x, 1 / size z); z = 0: no shore zone
 global uniform vec4 shore_a;    // (wave height m, wavelength m, phase 0..1, stagger)
 global uniform vec4 shore_b;    // (shoal depth m, run-up height m, run-up reach m, damping depth per m of wavelength)
-global uniform vec4 shore_c;    // (wave clock: waves so far, wrapped at 256; run-up variation; swash film m; film taper m)
+global uniform vec4 shore_c;    // (wave clock: waves so far, wrapped at 256; run-up variation; swash film m; swash lobes)
 
 // The shore map at a rest position (before the waves move it): outside the zone, open sea.
 vec4 shore_sample(vec2 xz) {
@@ -34,7 +34,9 @@ float shore_damp(vec4 s, float wavelength) {
 // then drains back, faster and faster. Some waves reach further than others. 0 at the start and
 // end of each wave's cycle, so neighbouring stretches of beach on different waves never meet in a
 // step. Not past the run-up reach inland, so hollows behind the dunes stay dry.
-float shore_swash(vec4 s) {
+// Along the beach the front is never a smooth line: it runs up in tongues and scallops, some
+// reaching further than others, a different pattern every wave (shore_c.w: how much).
+float shore_swash(vec4 s, vec2 xz) {
 	float clock = shore_c.x + s.w * shore_a.w;
 	float q = fract(clock); // 0 = a crest arrives at the shoreline
 	float n = floor(clock);
@@ -43,7 +45,13 @@ float shore_swash(vec4 s) {
 	float r = q < 0.35 ? 1.0 - (1.0 - q / 0.35) * (1.0 - q / 0.35)
 			: 1.0 - ((q - 0.35) / 0.65) * ((q - 0.35) / 0.65);
 	float reach = max(shore_b.z, 1.0);
-	return shore_b.y * (1.0 + shore_c.y * (2.0 * h - 1.0)) * r * smoothstep(-reach, -0.7 * reach, s.y);
+	float a = 6.2831853 * h;
+	// Nothing finer than a few metres: smaller ripples in the level met bumps in the sand ahead of
+	// the front as rings of water standing on their own. The foam lace frays the edge finer.
+	float lobes = sin(dot(xz, vec2(0.61, 0.79)) * 0.55 + a * 3.0) * 0.6 // tongues, ~11 m apart
+			+ sin(dot(xz, vec2(-0.83, 0.56)) * 1.3 + a * 5.0) * 0.4; // scallops, ~5 m
+	return shore_b.y * (1.0 + shore_c.y * (2.0 * h - 1.0)) * (1.0 + shore_c.w * lobes) * r
+			* smoothstep(-reach, -0.7 * reach, s.y);
 }
 
 // The shore waves at a rest position: (height, foam).
@@ -52,7 +60,7 @@ float shore_swash(vec4 s) {
 // reaches the shoreline the water washes up the sand as a thin sheet and drains back. The sheet
 // follows the sand itself, so it runs far up a gentle beach and only a little up a steep one.
 // The swash laps at every beach the map knows, not only inside the outline.
-vec2 shore_wave(vec4 s) {
+vec2 shore_wave(vec4 s, vec2 xz) {
 	float depth = s.x;
 	float height = 0.0;
 	float foam = 0.0;
@@ -71,9 +79,9 @@ vec2 shore_wave(vec4 s) {
 	}
 	// The swash: a sheet on the sand below the front, thickest behind it, thinning as it drains.
 	float sand = -depth;
-	float front = shore_swash(s);
+	float front = shore_swash(s, xz);
 	float q = fract(shore_c.x + stagger);
-	float film = shore_c.z * clamp((front - sand) / max(shore_c.w, 0.01), 0.0, 1.0)
+	float film = shore_c.z * clamp((front - sand) / 0.1, 0.0, 1.0)
 			* (1.0 - 0.6 * smoothstep(0.35, 1.0, q));
 	// Past the front the surface carries on level at the front's height, under the sand, so the
 	// edge drawn is where that level meets the beach: the true contour, between mesh vertices too.

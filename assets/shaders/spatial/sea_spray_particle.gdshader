@@ -111,7 +111,7 @@ void process() {
 				displacement += texture(displacements, vec3(START_POS.xz*scales.xy, float(i))).xyz * scales.z
 						* shore_damp(shore_sample(START_POS.xz), 1.0 / scales.x);
 			}
-			displacement.y += shore_wave(shore_sample(START_POS.xz)).x;
+			displacement.y += shore_wave(shore_sample(START_POS.xz), START_POS.xz).x;
 			// We multiply the horizontal displacement by a factor < 1 to prevent jittering that occasionally
 			// occurs from this method.
 			displacement *= vec3(0.75,1,0.75);

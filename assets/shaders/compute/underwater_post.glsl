@@ -70,7 +70,7 @@ layout(set = 0, binding = 4, std140) uniform Params {
 	vec4 shore_rect;      // Shore zone, see shore.gdshaderinc: (corner x, corner z, 1 / size x, 1 / size z)
 	vec4 shore_a;         // (wave height, wavelength, phase, stagger)
 	vec4 shore_b;         // (shoal depth, run-up height, run-up reach, damping depth per m of wavelength)
-	vec4 shore_c;         // (wave clock, run-up variation, swash film, film taper)
+	vec4 shore_c;         // (wave clock, run-up variation, swash film, swash lobes)
 } p;
 layout(set = 0, binding = 8) uniform sampler2D shore_map;
 
@@ -144,7 +144,7 @@ float shore_damp(vec4 s, float wavelength) {
 	return smoothstep(0.0, p.shore_b.w * wavelength, s.x);
 }
 
-float shore_swash(vec4 s) {
+float shore_swash(vec4 s, vec2 xz) {
 	float clock = p.shore_c.x + s.w * p.shore_a.w;
 	float q = fract(clock);
 	float n = floor(clock);
@@ -153,10 +153,14 @@ float shore_swash(vec4 s) {
 	float r = q < 0.35 ? 1.0 - (1.0 - q / 0.35) * (1.0 - q / 0.35)
 			: 1.0 - ((q - 0.35) / 0.65) * ((q - 0.35) / 0.65);
 	float reach = max(p.shore_b.z, 1.0);
-	return p.shore_b.y * (1.0 + p.shore_c.y * (2.0 * h - 1.0)) * r * smoothstep(-reach, -0.7 * reach, s.y);
+	float a = 6.2831853 * h;
+	float lobes = sin(dot(xz, vec2(0.61, 0.79)) * 0.55 + a * 3.0) * 0.6
+			+ sin(dot(xz, vec2(-0.83, 0.56)) * 1.3 + a * 5.0) * 0.4;
+	return p.shore_b.y * (1.0 + p.shore_c.y * (2.0 * h - 1.0)) * (1.0 + p.shore_c.w * lobes) * r
+			* smoothstep(-reach, -0.7 * reach, s.y);
 }
 
-float shore_wave(vec4 s) {
+float shore_wave(vec4 s, vec2 xz) {
 	float depth = s.x;
 	float height = 0.0;
 	float stagger = s.w * p.shore_a.w;
@@ -171,9 +175,9 @@ float shore_wave(vec4 s) {
 		height = amp * (2.0 * c - 1.0) * s.z;
 	}
 	float sand = -depth;
-	float front = shore_swash(s);
+	float front = shore_swash(s, xz);
 	float q = fract(p.shore_c.x + stagger);
-	float film = p.shore_c.z * clamp((front - sand) / max(p.shore_c.w, 0.01), 0.0, 1.0) * (1.0 - 0.6 * smoothstep(0.35, 1.0, q));
+	float film = p.shore_c.z * clamp((front - sand) / 0.1, 0.0, 1.0) * (1.0 - 0.6 * smoothstep(0.35, 1.0, q));
 	return max(height, sand < front ? sand + film : front);
 }
 
@@ -199,7 +203,7 @@ float wave_height(vec2 xz) {
 		d = displacement(rest) * (1.0 - shape.y) * calm.x;
 		rest = xz - d.xz;
 	}
-	return p.effect2.y + d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest)) * calm.x;
+	return p.effect2.y + d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest), rest) * calm.x;
 }
 
 #ifndef MODE_SHAFTS

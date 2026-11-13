@@ -53,7 +53,7 @@
 [ext_resource type="PackedScene" uid="uid://4qgamwgve5v3" path="res://scenes/world/leviathan_waters.tscn" id="90_leviathan"]
 [ext_resource type="Texture2D" path="res://assets/textures/Ground057_1K-PNG_Normal.res" id="99_gnorm"]
 [ext_resource type="Script" uid="uid://u82lbsa145at" path="res://assets/scripts/world/shore_zone.gd" id="100_shorezone"]
-[ext_resource type="Image" uid="uid://dv0bfmno54d8t" path="res://assets/water/shore/Main_ShoreZone.res" id="101_shoremap"]
+[ext_resource type="Image" path="res://assets/water/shore/Main_ShoreZone.res" id="101_shoremap"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_d13ii"]
 seed = 666
@@ -488,6 +488,10 @@ lens_bead_size = 0.09
 underwater_daylight = 4.0
 light_beam_strength = 0.2
 light_beam_quality = 6
+shore_run_up = 2.17
+shore_swash_lobes = 0.11
+shore_run_up_reach = 10.0
+shore_foam_width = 8.5
 marine_snow_amount = 8000
 marine_snow_size = 0.009
 marine_snow_sink = 0.08

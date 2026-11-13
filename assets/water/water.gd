@@ -262,6 +262,9 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 @export_range(0.0, 1.0, 0.01) var shore_run_up_variation := 0.35
 ## Thickness of the sheet of water the swash spreads on the sand (m).
 @export_range(0.01, 0.5, 0.005, 'suffix:m') var shore_swash_film := 0.06
+## How ragged the swash's front is along the beach: tongues and scallops running up further than
+## the water beside them, a new pattern every wave (0 = an even line).
+@export_range(0.0, 0.9, 0.01) var shore_swash_lobes := 0.35
 ## Width of the foam lace along the swash's leading edge (m); behind it the sheet is clear.
 @export_range(0.1, 6.0, 0.05, 'suffix:m') var shore_swash_foam_width := 1.5
 ## How much the clear sheet of swash shows on the sand (0 = only its foam).
@@ -408,7 +411,7 @@ func get_wave_height(global_position: Vector3, masked: bool = true) -> float:
 	for i in 3:
 		displacement = _cpu_displacement(rest) * wave_scale
 		rest = xz - Vector2(displacement.x, displacement.z)
-	return displacement.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest)) * calm.x
+	return displacement.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest), rest) * calm.x
 
 ## Where a piece of the water surface is right now, given where it sits at rest (x, z with no
 ## waves): the waves carry it round in a small loop as well as up and down. Following one piece
@@ -419,7 +422,7 @@ func surface_point(rest: Vector2, masked: bool = true) -> Vector3:
 	var calm := blocker_calm(Vector3(rest.x, 0.0, rest.y)) if masked else Vector2(1.0, 0.0)
 	var wave_scale := (1.0 - shape.y) * calm.x
 	var d := _cpu_displacement(rest) * wave_scale
-	var y := d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest)) * calm.x
+	var y := d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest), rest) * calm.x
 	return Vector3(rest.x + d.x, y, rest.y + d.z) # same height convention as get_wave_height()
 
 ## The rest position (see surface_point) of the water that is over `global_position` right now.
@@ -644,7 +647,7 @@ func shore_damp(s: Vector4, wavelength: float) -> float:
 	return smoothstep(0.0, _shore_b.w * wavelength, s.x)
 
 ## Height of the shore waves at a rest position. Mirrors shore_wave() in shore.gdshaderinc.
-func shore_wave(s: Vector4) -> float:
+func shore_wave(s: Vector4, xz: Vector2) -> float:
 	var depth := s.x
 	var height := 0.0
 	var stagger := s.w * _shore_a.w
@@ -658,14 +661,14 @@ func shore_wave(s: Vector4) -> float:
 		amp = minf(amp, 0.39 * maxf(depth, 0.0))
 		height = amp * (2.0 * c - 1.0) * s.z
 	var sand := -depth
-	var front := shore_swash(s)
+	var front := shore_swash(s, xz)
 	var q := fposmod(_shore_c.x + stagger, 1.0)
-	var film := _shore_c.z * clampf((front - sand) / maxf(_shore_c.w, 0.01), 0.0, 1.0) * (1.0 - 0.6 * smoothstep(0.35, 1.0, q))
+	var film := _shore_c.z * clampf((front - sand) / 0.1, 0.0, 1.0) * (1.0 - 0.6 * smoothstep(0.35, 1.0, q))
 	return maxf(height, sand + film if sand < front else front)
 
 ## How high up the beach the swash has climbed (m above sea level). Mirrors shore_swash() in
 ## shore.gdshaderinc.
-func shore_swash(s: Vector4) -> float:
+func shore_swash(s: Vector4, xz: Vector2) -> float:
 	var clock := _shore_c.x + s.w * _shore_a.w
 	var q := fposmod(clock, 1.0)
 	var n := floorf(clock)
@@ -673,7 +676,11 @@ func shore_swash(s: Vector4) -> float:
 	h = fposmod(h * h * 37.1 + h * 7.3, 1.0)
 	var r := 1.0 - (1.0 - q / 0.35) * (1.0 - q / 0.35) if q < 0.35 else 1.0 - ((q - 0.35) / 0.65) * ((q - 0.35) / 0.65)
 	var reach := maxf(_shore_b.z, 1.0)
-	return _shore_b.y * (1.0 + _shore_c.y * (2.0 * h - 1.0)) * r * smoothstep(-reach, -0.7 * reach, s.y)
+	var a := TAU * h
+	var lobes := sin(xz.dot(Vector2(0.61, 0.79)) * 0.55 + a * 3.0) * 0.6 \
+			+ sin(xz.dot(Vector2(-0.83, 0.56)) * 1.3 + a * 5.0) * 0.4
+	return _shore_b.y * (1.0 + _shore_c.y * (2.0 * h - 1.0)) * (1.0 + _shore_c.w * lobes) * r \
+			* smoothstep(-reach, -0.7 * reach, s.y)
 
 ## The shore waves' parameters for this frame, worked out once per frame by whatever asks first
 ## (physics runs before _process), so every height read this frame and the frame drawn agree.
@@ -685,7 +692,7 @@ func _shore_params_now() -> void:
 		_shore_clock = fposmod(_shore_clock + get_process_delta_time() / maxf(shore_wave_period, 0.1), 256.0)
 	var height := clampf(shore_wave_height * maxf(_wave_amplitude, 0.0) * 0.5, shore_wave_min_height, maxf(shore_wave_max_height, shore_wave_min_height))
 	_shore_a = Vector4(height, shore_wavelength, fposmod(_shore_clock, 1.0), shore_stagger)
-	_shore_c = Vector4(_shore_clock, shore_run_up_variation, shore_swash_film, 0.1)
+	_shore_c = Vector4(_shore_clock, shore_run_up_variation, shore_swash_film, shore_swash_lobes)
 	var longest := 0.0
 	for sc in map_scales: longest = maxf(longest, 1.0 / maxf(sc.x, 1e-6))
 	_shore_b = Vector4(shore_shoal_depth, shore_run_up * height, shore_run_up_reach,
