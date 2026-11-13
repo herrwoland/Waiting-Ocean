@@ -621,11 +621,13 @@ func shore_sample(rest: Vector2) -> Vector4:
 	var top := _shore_img.get_pixel(xa, ya).lerp(_shore_img.get_pixel(xb, ya), fx)
 	var bottom := _shore_img.get_pixel(xa, yb).lerp(_shore_img.get_pixel(xb, yb), fx)
 	var c := top.lerp(bottom, fy)
-	return Vector4(c.r, c.g, c.b, c.a)
+	# Towards the map's border the floor fades to open sea (no seam), as in the shader.
+	var edge := minf(minf(uv.x, 1.0 - uv.x) / _shore_rect.z, minf(uv.y, 1.0 - uv.y) / _shore_rect.w)
+	return Vector4(lerpf(400.0, c.r, smoothstep(0.0, 30.0, edge)), c.g, c.b, c.a)
 
-## Mirrors shore_damp() in shore.gdshaderinc.
+## Mirrors shore_damp() in shore.gdshaderinc: by depth wherever the map knows the floor.
 func shore_damp(s: Vector4, wavelength: float) -> float:
-	return lerpf(1.0, smoothstep(0.0, _shore_b.w * wavelength, s.x), s.z)
+	return smoothstep(0.0, _shore_b.w * wavelength, s.x)
 
 ## Height of the shore waves at a rest position. Mirrors shore_wave() in shore.gdshaderinc.
 func shore_wave(s: Vector4) -> float:

@@ -631,9 +631,11 @@ func _process_swim(delta: float) -> void:
 	move_and_slide()
 
 	# You can't swim out of the water: clamp to the wave surface so holding
-	# swim_up rides the waves instead of launching into the sky.
+	# swim_up rides the waves instead of launching into the sky. Moved, not set: when the water
+	# drains off a beach the sand stops us (and we stand up, see _check_exit_swim) instead of the
+	# clamp pulling us down into it.
 	if global_position.y > swim_top_y:
-		global_position.y = swim_top_y
+		move_and_collide(Vector3(0.0, swim_top_y - global_position.y, 0.0))
 		velocity.y = minf(velocity.y, 0.0)
 
 	# Keep the surface ripples sitting on the waves above us.

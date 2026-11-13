@@ -13,13 +13,19 @@ vec4 shore_sample(vec2 xz) {
 	if (shore_rect.z <= 0.0 || uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
 		return vec4(400.0, 2000.0, 0.0, 0.0);
 	}
-	return textureLod(shore_map, uv, 0.0);
+	vec4 s = textureLod(shore_map, uv, 0.0);
+	// Towards the map's border the floor fades to open sea, so whatever the depth there, the
+	// waves never meet a seam.
+	vec2 edge = min(uv, 1.0 - uv) / shore_rect.zw;
+	s.x = mix(400.0, s.x, smoothstep(0.0, 30.0, min(edge.x, edge.y)));
+	return s;
 }
 
 // How much of a wave cascade survives here: waves feel the floor once the water is shallower
-// than a fraction of their length, so the long swell dies first and the chop last.
+// than a fraction of their length, so the long swell dies first and the chop last, gradually,
+// and none run on under dry land. Wherever the map knows the floor, outline or not.
 float shore_damp(vec4 s, float wavelength) {
-	return mix(1.0, smoothstep(0.0, shore_b.w * wavelength, s.x), s.z);
+	return smoothstep(0.0, shore_b.w * wavelength, s.x);
 }
 
 // The shore waves at a rest position: (height, foam).

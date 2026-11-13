@@ -133,11 +133,14 @@ vec4 shore_sample(vec2 xz) {
 	if (p.shore_rect.z <= 0.0 || uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
 		return vec4(400.0, 2000.0, 0.0, 0.0);
 	}
-	return textureLod(shore_map, uv, 0.0);
+	vec4 s = textureLod(shore_map, uv, 0.0);
+	vec2 edge = min(uv, 1.0 - uv) / p.shore_rect.zw;
+	s.x = mix(400.0, s.x, smoothstep(0.0, 30.0, min(edge.x, edge.y)));
+	return s;
 }
 
 float shore_damp(vec4 s, float wavelength) {
-	return mix(1.0, smoothstep(0.0, p.shore_b.w * wavelength, s.x), s.z);
+	return smoothstep(0.0, p.shore_b.w * wavelength, s.x);
 }
 
 float shore_wave(vec4 s) {

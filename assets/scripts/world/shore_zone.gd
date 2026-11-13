@@ -26,6 +26,10 @@ const SAVE_DIR := 'res://assets/water/shore/'
 @export_range(0.0, 100.0, 0.5, 'suffix:m') var edge_fade := 25.0
 ## Blur of the shoreline distance (texels): rounds off the crests' kinks around rocks and coves.
 @export_range(0, 16) var shore_smoothing := 4
+## How far beyond the outline the sea floor is read too (m). The ocean's own waves die down by
+## depth wherever it is known, outline or not (the outline only places the shore waves), so this
+## should reach out into deep water: it is what lets a storm swell fade instead of being cut off.
+@export_range(0.0, 300.0, 5.0, 'suffix:m') var sea_margin := 60.0
 ## Things the bake looks straight through, as if they were not there (with everything under
 ## them). Piers and other decks standing over open water are skipped on their own.
 @export var ignore: Array[Node3D] = []
@@ -63,6 +67,7 @@ func bake() -> void:
 	var t0 := Time.get_ticks_msec()
 	var bb := Rect2(poly[0], Vector2.ZERO)
 	for p in poly: bb = bb.expand(p)
+	bb = bb.grow(sea_margin)
 	var texel := maxf(texel_size, maxf(bb.size.x, bb.size.y) / float(MAX_SIZE - 2))
 	bb = bb.grow(texel)
 	var w := ceili(bb.size.x / texel)
