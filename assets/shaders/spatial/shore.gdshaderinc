@@ -77,30 +77,33 @@ float shore_swash_peak(vec4 s, vec2 xz, float n) {
 			* smoothstep(-reach, -0.7 * reach, s.y);
 }
 
-// How wet the sand at this height is (0..1): soaked while the swash covers it, then drying from
-// the moment the backwash leaves it (shore_d.x waves to dry), so the last waves leave a dark band
-// behind them that the next one tops up. Only for terrain, so nothing physical depends on it.
-float shore_wetness(vec4 s, vec2 xz, float sand_y) {
+// How wet the sand is (0..1): soaked while the swash covers it, then drying from the moment the
+// backwash leaves it (shore_d.x waves to dry). The wettest of the last several waves counts, so
+// the dark mark is where the highest recent ones reached and holds still, fading, instead of each
+// wave redrawing it somewhere else. Measured on the baked sand (still, and the same for every
+// view), not the terrain's drawn height, which shifts as its detail changes with distance. Only
+// for terrain, so nothing physical depends on it.
+float shore_wetness(vec4 s, vec2 xz) {
 	if (shore_d.x <= 0.0 || s.y < -max(shore_b.z, 1.0) || shore_b.y <= 0.0) return 0.0;
+	float sand_y = -s.x;
 	// Under the sea itself it is soaked, fading out with depth: the sea floor further out keeps the
 	// look the water gives it.
 	if (sand_y < 0.0) return 1.0 - smoothstep(0.5, 2.0, -sand_y);
+	if (sand_y < shore_swash(s, xz)) return 1.0; // under the swash right now
 	float clock = shore_c.x + s.w * shore_a.w;
 	float q = fract(clock);
 	float n = floor(clock);
-	if (sand_y < shore_swash(s, xz)) return 1.0; // under the swash right now
-	// When the water last left this height: on this wave's backwash, or one of the two before.
-	float since = 1e3;
-	for (int back = 0; back < 3; back++) {
+	float wet = 0.0;
+	for (int back = 0; back < 6; back++) {
+		if (back == 0 && q < 0.35) continue; // this wave is still running up
 		float peak = shore_swash_peak(s, xz, n - float(back));
-		if (peak > sand_y && (back > 0 || q > 0.35)) {
+		if (peak > sand_y) {
 			// The backwash falls as peak * (1 - t^2), t = 0..1 over the last 0.65 of the wave.
 			float left = 0.35 + 0.65 * sqrt(1.0 - sand_y / peak);
-			since = q + float(back) - left;
-			break;
+			wet = max(wet, exp(-max(q + float(back) - left, 0.0) / shore_d.x));
 		}
 	}
-	return since < 0.0 ? 1.0 : exp(-since / shore_d.x);
+	return wet;
 }
 
 // The shore waves at a rest position: (height, foam).

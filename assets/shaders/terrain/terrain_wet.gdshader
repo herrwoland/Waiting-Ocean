@@ -537,8 +537,8 @@ void fragment() {
 	// Wet sand: darker and glossier where the swash has been, drying after it (see shore_wetness).
 	float wet = 0.0;
 	// Only ground the swash can ever reach reads the shore map: anything higher, or deeper.
-	if (shore_d.x > 0.0 && v_vertex.y > -2.0 && v_vertex.y < shore_b.y * (1.0 + shore_c.y) * (1.0 + shore_c.w)) {
-		wet = shore_wetness(shore_sample(v_vertex.xz), v_vertex.xz, v_vertex.y);
+	if (shore_d.x > 0.0 && v_vertex.y > -2.5 && v_vertex.y < shore_b.y * (1.0 + shore_c.y) * (1.0 + shore_c.w) + 0.3) {
+		wet = shore_wetness(shore_sample(v_vertex.xz), v_vertex.xz);
 	}
 
 	// Apply PBR

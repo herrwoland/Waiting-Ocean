@@ -266,7 +266,8 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 ## the water beside them, a new pattern every wave (0 = an even line).
 @export_range(0.0, 0.9, 0.01) var shore_swash_lobes := 0.35
 ## Wet sand: how many waves the sand takes to dry after the swash leaves it (0 = never darkens).
-@export_range(0.0, 10.0, 0.05) var shore_wet_drying := 1.5
+## The wettest of the last six waves counts, so longer keeps the mark steadier.
+@export_range(0.0, 10.0, 0.05) var shore_wet_drying := 4.0
 ## How much darker wet sand is (0 = not at all, 1 = black).
 @export_range(0.0, 1.0, 0.01) var shore_wet_darkening := 0.45
 ## How glossy wet sand gets (0 = as dry, 1 = mirror smooth).
