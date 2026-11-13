@@ -70,6 +70,7 @@ layout(set = 0, binding = 4, std140) uniform Params {
 	vec4 shore_rect;      // Shore zone, see shore.gdshaderinc: (corner x, corner z, 1 / size x, 1 / size z)
 	vec4 shore_a;         // (wave height, wavelength, phase, stagger)
 	vec4 shore_b;         // (shoal depth, run-up height, run-up reach, damping depth per m of wavelength)
+	vec4 shore_c;         // (wave clock, run-up variation, swash film, film taper)
 } p;
 layout(set = 0, binding = 8) uniform sampler2D shore_map;
 
@@ -143,24 +144,37 @@ float shore_damp(vec4 s, float wavelength) {
 	return smoothstep(0.0, p.shore_b.w * wavelength, s.x);
 }
 
-float shore_wave(vec4 s) {
-	if (s.z <= 0.0) return 0.0;
-	float depth = s.x;
-	float shoal = max(p.shore_b.x, 0.1);
-	float stagger = s.w * p.shore_a.w;
-	float ph = fract(s.y / max(p.shore_a.y, 1.0) + p.shore_a.z + stagger);
-	float steep = clamp(1.0 - depth / shoal, 0.0, 1.0);
-	float g = pow(ph, 1.0 + 1.5 * steep);
-	float c = pow(0.5 + 0.5 * cos(6.2831853 * g), 1.0 + 2.0 * steep);
-	float amp = p.shore_a.x * pow(shoal / max(depth, 0.25 * shoal), 0.25) * (1.0 - smoothstep(shoal, 3.0 * shoal, depth));
-	amp = min(amp, 0.39 * max(depth, 0.0));
-	float height = amp * (2.0 * c - 1.0);
-	float q = fract(p.shore_a.z + stagger);
-	float rise = q < 0.15 ? smoothstep(0.0, 0.15, q) : 1.0 - smoothstep(0.15, 0.9, q);
+float shore_swash(vec4 s) {
+	float clock = p.shore_c.x + s.w * p.shore_a.w;
+	float q = fract(clock);
+	float n = floor(clock);
+	float h = fract(n * 0.618034);
+	h = fract(h * h * 37.1 + h * 7.3);
+	float r = q < 0.35 ? 1.0 - (1.0 - q / 0.35) * (1.0 - q / 0.35)
+			: 1.0 - ((q - 0.35) / 0.65) * ((q - 0.35) / 0.65);
 	float reach = max(p.shore_b.z, 1.0);
-	float band = smoothstep(-1.3 * reach, -reach, s.y) * (1.0 - smoothstep(0.0, 4.0, s.y));
-	height += p.shore_b.y * rise * band;
-	return height * s.z;
+	return p.shore_b.y * (1.0 + p.shore_c.y * (2.0 * h - 1.0)) * r * smoothstep(-reach, -0.7 * reach, s.y);
+}
+
+float shore_wave(vec4 s) {
+	float depth = s.x;
+	float height = 0.0;
+	float stagger = s.w * p.shore_a.w;
+	if (s.z > 0.0) {
+		float shoal = max(p.shore_b.x, 0.1);
+		float ph = fract(s.y / max(p.shore_a.y, 1.0) + p.shore_a.z + stagger);
+		float steep = clamp(1.0 - depth / shoal, 0.0, 1.0);
+		float g = pow(ph, 1.0 + 1.5 * steep);
+		float c = pow(0.5 + 0.5 * cos(6.2831853 * g), 1.0 + 2.0 * steep);
+		float amp = p.shore_a.x * pow(shoal / max(depth, 0.25 * shoal), 0.25) * (1.0 - smoothstep(shoal, 3.0 * shoal, depth));
+		amp = min(amp, 0.39 * max(depth, 0.0));
+		height = amp * (2.0 * c - 1.0) * s.z;
+	}
+	float sand = -depth;
+	float front = shore_swash(s);
+	float q = fract(p.shore_c.x + stagger);
+	float film = p.shore_c.z * clamp((front - sand) / max(p.shore_c.w, 0.01), 0.0, 1.0) * (1.0 - 0.6 * smoothstep(0.35, 1.0, q));
+	return max(height, sand < front ? sand + film : front);
 }
 
 vec3 displacement(vec2 xz) {

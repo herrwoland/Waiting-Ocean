@@ -7,7 +7,7 @@ class_name UnderwaterEffect extends CompositorEffect
 const SHADER_PATH := 'res://assets/shaders/compute/underwater_post.glsl'
 const COPY_SHADER_PATH := 'res://assets/shaders/compute/image_copy.glsl'
 const CAUSTICS_SHADER_PATH := 'res://assets/shaders/compute/caustics.glsl'
-const PARAMS_SIZE := 2432 # 2 mat4 + 4 vec4 map scales + 10 vec4 + 2x16 vec4 water shapes + 4 vec4 shadow + fog gradient + 3x8 vec4 blockers + glow info + 2x16 vec4 glows + beam info + 3x8 vec4 beams + beam info 2 + 7 vec4 sonar pulse + 3 vec4 shore zone, std140.
+const PARAMS_SIZE := 2448 # 2 mat4 + 4 vec4 map scales + 10 vec4 + 2x16 vec4 water shapes + 4 vec4 shadow + fog gradient + 3x8 vec4 blockers + glow info + 2x16 vec4 glows + beam info + 3x8 vec4 beams + beam info 2 + 7 vec4 sonar pulse + 4 vec4 shore zone, std140.
 const MAX_WATER_SHAPES := 16
 const MAX_GLOWS := 16
 const MAX_BEAMS := 8
@@ -39,6 +39,7 @@ var shore_texture := RID() # RenderingDevice texture of the baked shore map, or 
 var shore_rect := Vector4.ZERO
 var shore_a := Vector4.ZERO
 var shore_b := Vector4.ZERO
+var shore_c := Vector4.ZERO
 var vignette := 0.35
 var silhouette_range := 45.0
 var fog_down := 0.35
@@ -332,7 +333,7 @@ func _update_params(scene_data : RenderSceneDataRD, view : int) -> void:
 	data.append_array([pulse_age, pulse_speed, pulse_afterglow, pulse_flare])
 	data.append_array([pulse_far_brightness, pulse_surface, 0.0, 0.0])
 	var has_shore := shore_texture.is_valid() and _rd.texture_is_valid(shore_texture)
-	for v in [shore_rect if has_shore else Vector4.ZERO, shore_a, shore_b]:
+	for v in [shore_rect if has_shore else Vector4.ZERO, shore_a, shore_b, shore_c]:
 		data.append_array([v.x, v.y, v.z, v.w])
 	var bytes := data.to_byte_array()
 	_rd.buffer_update(_params_buffer, 0, bytes.size(), bytes)

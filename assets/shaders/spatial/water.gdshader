@@ -376,6 +376,7 @@ varying float rain_wet; // How rain-beaten this bit of surface is (0..1), for th
 varying vec3 shore_depth; // Shore zone (see shore.gdshaderinc): (depth to the floor, zone weight, distance to the shoreline).
 varying vec2 shore_slope; // Slope of the shore waves (dh/dx, dh/dz).
 varying float shore_foam;
+varying float swash_front; // How high up the beach the swash has climbed (m above sea level), see shore_swash().
 
 // Wave-blocker attenuation at a rest position (pre-displacement). Returns
 // (mask, hole, calm height): mask 0 inside a blocker rising to 1 across its fade width;
@@ -581,12 +582,27 @@ void vertex() {
 	vec2 shore_wave_here = shore_wave(shore) * blocker_mask;
 	shore_foam = shore_wave_here.y;
 	shore_slope = vec2(0.0);
-	if (shore.z > 0.0) {
+	if (shore.z > 0.0 || (shore.x < 1.0 && shore.y > -shore_b.z)) { // in the zone, or where the swash can reach
 		shore_slope = (vec2(shore_wave(shore_sample(VERTEX.xz + vec2(0.5, 0.0))).x,
 				shore_wave(shore_sample(VERTEX.xz + vec2(0.0, 0.5))).x) * blocker_mask - shore_wave_here.x) * 2.0;
 	}
+	swash_front = shore_swash(shore);
+	// The swash's edge is cut per pixel (see fragment), at the true contour where its level meets
+	// the sand, not along the mesh's triangles (a zigzag). For that the mesh must stay just above
+	// the sand a little past the front: those vertices lift onto it, and the cut hides them. Far
+	// off, the mesh is coarse (1 to 8 m) and sand bumps between its vertices would poke through a
+	// sheet a few cm thick: there it thickens. Drawn only: the CPU's water ends at the front, as
+	// what is seen does.
+	float sand = -shore.x;
+	float above = shape.x + calm_lift + shore_wave_here.x;
+	float swash_lift = 0.0;
+	if (sand > -0.5 && sand < swash_front + 0.2) {
+		swash_lift = max(sand + 0.03 - above, 0.0)
+				+ clamp((distance_cam - 64.0) / 200.0, 0.0, 1.0) * 0.15;
+		swash_lift *= blocker_mask;
+	}
 	wave_height += shore_wave_here.x;
-	VERTEX.y += shape.x + calm_lift + shore_wave_here.x;
+	VERTEX.y += above + swash_lift;
 }
 
 /** Filter weights for a cubic B-spline. */
@@ -880,6 +896,8 @@ void fragment() {
 	ALPHA *= clamp(smooth_alpha, 0.00, 1.0);
 	// Foam floats on the water: it stays as solid where the water itself thins to clear.
 	ALPHA = max(ALPHA, clamp(contact.x, 0.0, 1.0));
+	// On the beach, nothing above the swash's front: a sharp wet edge that follows the sand.
+	ALPHA *= 1.0 - step(-0.5, -shore_depth.x) * smoothstep(swash_front - 0.03, swash_front, behind_y);
 	if (ALPHA < 0.9){
 		foam_factor = clamp(foam_factor + 0.5 - ALPHA, 0.0, 1.0);
 	}

@@ -255,8 +255,13 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 @export_range(2.0, 30.0, 0.1, 'suffix:s') var shore_wave_period := 8.0
 ## Depth where they start to grow and steepen (m); they appear from three times as deep.
 @export_range(0.5, 30.0, 0.1, 'suffix:m') var shore_shoal_depth := 5.0
-## How high the water climbs the sand after each wave, as a share of the wave's height.
-@export_range(0.0, 4.0, 0.01) var shore_run_up := 0.6
+## How high up the sand each wave's swash climbs, as a height above sea level for a share of
+## the wave's height: it runs far up a gentle beach and only a little up a steep one.
+@export_range(0.0, 6.0, 0.01) var shore_run_up := 2.5
+## How much the waves differ in how far they run up (0 = all alike).
+@export_range(0.0, 1.0, 0.01) var shore_run_up_variation := 0.35
+## Thickness of the sheet of water the swash spreads on the sand (m).
+@export_range(0.01, 0.5, 0.005, 'suffix:m') var shore_swash_film := 0.06
 ## Furthest inland the run-up may reach (m); hollows beyond it stay dry.
 @export_range(1.0, 100.0, 0.5, 'suffix:m') var shore_run_up_reach := 25.0
 ## How much the crests are staggered along the coast, in waves (0 = all in step).
@@ -370,7 +375,8 @@ var _shore_img: Image
 var _shore_rect := Vector4.ZERO # As the shader's shore_rect.
 var _shore_a := Vector4.ZERO
 var _shore_b := Vector4.ZERO
-var _shore_phase := 0.0
+var _shore_c := Vector4.ZERO
+var _shore_clock := 0.0 # Waves so far (wrapped at 256): shore_c.x, the phase is its fraction.
 var _shore_frame := -1
 var _cascade_height_var := PackedFloat32Array() # See _measure_wave_amplitude.
 var _wave_amplitude := -1.0
@@ -635,23 +641,35 @@ func shore_damp(s: Vector4, wavelength: float) -> float:
 
 ## Height of the shore waves at a rest position. Mirrors shore_wave() in shore.gdshaderinc.
 func shore_wave(s: Vector4) -> float:
-	if s.z <= 0.0: return 0.0
 	var depth := s.x
-	var shoal := maxf(_shore_b.x, 0.1)
+	var height := 0.0
 	var stagger := s.w * _shore_a.w
-	var p := fposmod(s.y / maxf(_shore_a.y, 1.0) + _shore_a.z + stagger, 1.0)
-	var steep := clampf(1.0 - depth / shoal, 0.0, 1.0)
-	var g := pow(p, 1.0 + 1.5 * steep)
-	var c := pow(0.5 + 0.5 * cos(TAU * g), 1.0 + 2.0 * steep)
-	var amp := _shore_a.x * pow(shoal / maxf(depth, 0.25 * shoal), 0.25) * (1.0 - smoothstep(shoal, 3.0 * shoal, depth))
-	amp = minf(amp, 0.39 * maxf(depth, 0.0))
-	var height := amp * (2.0 * c - 1.0)
-	var q := fposmod(_shore_a.z + stagger, 1.0)
-	var rise := smoothstep(0.0, 0.15, q) if q < 0.15 else 1.0 - smoothstep(0.15, 0.9, q)
+	if s.z > 0.0:
+		var shoal := maxf(_shore_b.x, 0.1)
+		var p := fposmod(s.y / maxf(_shore_a.y, 1.0) + _shore_a.z + stagger, 1.0)
+		var steep := clampf(1.0 - depth / shoal, 0.0, 1.0)
+		var g := pow(p, 1.0 + 1.5 * steep)
+		var c := pow(0.5 + 0.5 * cos(TAU * g), 1.0 + 2.0 * steep)
+		var amp := _shore_a.x * pow(shoal / maxf(depth, 0.25 * shoal), 0.25) * (1.0 - smoothstep(shoal, 3.0 * shoal, depth))
+		amp = minf(amp, 0.39 * maxf(depth, 0.0))
+		height = amp * (2.0 * c - 1.0) * s.z
+	var sand := -depth
+	var front := shore_swash(s)
+	var q := fposmod(_shore_c.x + stagger, 1.0)
+	var film := _shore_c.z * clampf((front - sand) / maxf(_shore_c.w, 0.01), 0.0, 1.0) * (1.0 - 0.6 * smoothstep(0.35, 1.0, q))
+	return maxf(height, sand + film if sand < front else front)
+
+## How high up the beach the swash has climbed (m above sea level). Mirrors shore_swash() in
+## shore.gdshaderinc.
+func shore_swash(s: Vector4) -> float:
+	var clock := _shore_c.x + s.w * _shore_a.w
+	var q := fposmod(clock, 1.0)
+	var n := floorf(clock)
+	var h := fposmod(n * 0.618034, 1.0)
+	h = fposmod(h * h * 37.1 + h * 7.3, 1.0)
+	var r := 1.0 - (1.0 - q / 0.35) * (1.0 - q / 0.35) if q < 0.35 else 1.0 - ((q - 0.35) / 0.65) * ((q - 0.35) / 0.65)
 	var reach := maxf(_shore_b.z, 1.0)
-	var band := smoothstep(-1.3 * reach, -reach, s.y) * (1.0 - smoothstep(0.0, 4.0, s.y))
-	height += _shore_b.y * rise * band
-	return height * s.z
+	return _shore_b.y * (1.0 + _shore_c.y * (2.0 * h - 1.0)) * r * smoothstep(-reach, -0.7 * reach, s.y)
 
 ## The shore waves' parameters for this frame, worked out once per frame by whatever asks first
 ## (physics runs before _process), so every height read this frame and the frame drawn agree.
@@ -660,9 +678,10 @@ func _shore_params_now() -> void:
 	if frame == _shore_frame: return
 	_shore_frame = frame
 	if is_inside_tree() and can_process():
-		_shore_phase = fposmod(_shore_phase + get_process_delta_time() / maxf(shore_wave_period, 0.1), 1.0)
+		_shore_clock = fposmod(_shore_clock + get_process_delta_time() / maxf(shore_wave_period, 0.1), 256.0)
 	var height := clampf(shore_wave_height * maxf(_wave_amplitude, 0.0) * 0.5, shore_wave_min_height, maxf(shore_wave_max_height, shore_wave_min_height))
-	_shore_a = Vector4(height, shore_wavelength, _shore_phase, shore_stagger)
+	_shore_a = Vector4(height, shore_wavelength, fposmod(_shore_clock, 1.0), shore_stagger)
+	_shore_c = Vector4(_shore_clock, shore_run_up_variation, shore_swash_film, 0.1)
 	var longest := 0.0
 	for sc in map_scales: longest = maxf(longest, 1.0 / maxf(sc.x, 1e-6))
 	_shore_b = Vector4(shore_shoal_depth, shore_run_up * height, shore_run_up_reach,
@@ -687,10 +706,12 @@ func _update_shore() -> void:
 	WATER_MAT.set_shader_parameter(&'shore_foam_opacity', shore_foam_opacity)
 	RenderingServer.global_shader_parameter_set(&'shore_a', _shore_a)
 	RenderingServer.global_shader_parameter_set(&'shore_b', _shore_b)
+	RenderingServer.global_shader_parameter_set(&'shore_c', _shore_c)
 	if underwater_effect:
 		underwater_effect.shore_rect = _shore_rect
 		underwater_effect.shore_a = _shore_a
 		underwater_effect.shore_b = _shore_b
+		underwater_effect.shore_c = _shore_c
 func _setup_wave_generator() -> void:
 	if parameters.size() <= 0: return
 	for param in parameters:
