@@ -7,6 +7,7 @@ global uniform vec4 shore_rect; // (corner x, corner z, 1 / size x, 1 / size z);
 global uniform vec4 shore_a;    // (wave height m, wavelength m, phase 0..1, stagger)
 global uniform vec4 shore_b;    // (shoal depth m, run-up height m, run-up reach m, damping depth per m of wavelength)
 global uniform vec4 shore_c;    // (wave clock: waves so far, wrapped at 256; run-up variation; swash film m; swash lobes)
+global uniform vec4 shore_d;    // wet sand: (drying time in waves, how dark, how glossy, unused)
 
 // The shore map at a rest position (before the waves move it): outside the zone, open sea.
 vec4 shore_sample(vec2 xz) {
@@ -61,6 +62,45 @@ vec3 shore_swash_parts(vec4 s, vec2 xz) {
 
 float shore_swash(vec4 s, vec2 xz) {
 	return shore_swash_parts(s, xz).x;
+}
+
+// How high wave n's swash climbs at its peak here (m above sea level): shore_swash_parts' sums
+// without the rise and fall.
+float shore_swash_peak(vec4 s, vec2 xz, float n) {
+	float h = fract(n * 0.618034);
+	h = fract(h * h * 37.1 + h * 7.3);
+	float a = 6.2831853 * h;
+	float lobes = sin(dot(xz, vec2(0.61, 0.79)) * 0.55 + a * 3.0) * 0.6
+			+ sin(dot(xz, vec2(-0.83, 0.56)) * 1.3 + a * 5.0) * 0.4;
+	float reach = max(shore_b.z, 1.0);
+	return shore_b.y * (1.0 + shore_c.y * (2.0 * h - 1.0)) * (1.0 + shore_c.w * lobes)
+			* smoothstep(-reach, -0.7 * reach, s.y);
+}
+
+// How wet the sand at this height is (0..1): soaked while the swash covers it, then drying from
+// the moment the backwash leaves it (shore_d.x waves to dry), so the last waves leave a dark band
+// behind them that the next one tops up. Only for terrain, so nothing physical depends on it.
+float shore_wetness(vec4 s, vec2 xz, float sand_y) {
+	if (shore_d.x <= 0.0 || s.y < -max(shore_b.z, 1.0) || shore_b.y <= 0.0) return 0.0;
+	// Under the sea itself it is soaked, fading out with depth: the sea floor further out keeps the
+	// look the water gives it.
+	if (sand_y < 0.0) return 1.0 - smoothstep(0.5, 2.0, -sand_y);
+	float clock = shore_c.x + s.w * shore_a.w;
+	float q = fract(clock);
+	float n = floor(clock);
+	if (sand_y < shore_swash(s, xz)) return 1.0; // under the swash right now
+	// When the water last left this height: on this wave's backwash, or one of the two before.
+	float since = 1e3;
+	for (int back = 0; back < 3; back++) {
+		float peak = shore_swash_peak(s, xz, n - float(back));
+		if (peak > sand_y && (back > 0 || q > 0.35)) {
+			// The backwash falls as peak * (1 - t^2), t = 0..1 over the last 0.65 of the wave.
+			float left = 0.35 + 0.65 * sqrt(1.0 - sand_y / peak);
+			since = q + float(back) - left;
+			break;
+		}
+	}
+	return since < 0.0 ? 1.0 : exp(-since / shore_d.x);
 }
 
 // The shore waves at a rest position: (height, foam).

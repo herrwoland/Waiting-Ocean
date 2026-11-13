@@ -227,3 +227,7 @@ shore_c={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 0)
 }
+shore_d={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}

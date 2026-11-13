@@ -265,6 +265,12 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 ## How ragged the swash's front is along the beach: tongues and scallops running up further than
 ## the water beside them, a new pattern every wave (0 = an even line).
 @export_range(0.0, 0.9, 0.01) var shore_swash_lobes := 0.35
+## Wet sand: how many waves the sand takes to dry after the swash leaves it (0 = never darkens).
+@export_range(0.0, 10.0, 0.05) var shore_wet_drying := 1.5
+## How much darker wet sand is (0 = not at all, 1 = black).
+@export_range(0.0, 1.0, 0.01) var shore_wet_darkening := 0.45
+## How glossy wet sand gets (0 = as dry, 1 = mirror smooth).
+@export_range(0.0, 1.0, 0.01) var shore_wet_gloss := 0.6
 ## Width of the foam lace along the swash's leading edge (m); behind it the sheet is clear.
 @export_range(0.1, 6.0, 0.05, 'suffix:m') var shore_swash_foam_width := 1.5
 ## How much the clear sheet of swash shows on the sand (0 = only its foam).
@@ -724,6 +730,8 @@ func _update_shore() -> void:
 	RenderingServer.global_shader_parameter_set(&'shore_a', _shore_a)
 	RenderingServer.global_shader_parameter_set(&'shore_b', _shore_b)
 	RenderingServer.global_shader_parameter_set(&'shore_c', _shore_c)
+	RenderingServer.global_shader_parameter_set(&'shore_d', Vector4(shore_wet_drying if _shore_rect.z > 0.0 else 0.0,
+			shore_wet_darkening, shore_wet_gloss, 0.0))
 	if underwater_effect:
 		underwater_effect.shore_rect = _shore_rect
 		underwater_effect.shore_a = _shore_a
