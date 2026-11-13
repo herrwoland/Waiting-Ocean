@@ -43,12 +43,13 @@ waves = Array[Dictionary]([{
 }])
 water = {
 &"foam_color": Color(0.8520676, 0.8132686, 0.7798851, 1),
-&"translucency_color": Color(0.09257863, 0.24071687, 0.23149171, 1),
-&"translucency_crest_glow": 2.0,
+&"translucency_color": Color(0.33865285, 0.66185045, 0.52173185, 1),
+&"translucency_crest_glow": 0.96,
 &"translucency_distortion": 1.0,
-&"translucency_height_bias": -0.08999999999999997,
-&"translucency_sharpness": 4.0,
-&"translucency_strength": 0.65,
+&"translucency_height_bias": -0.45999999999999996,
+&"translucency_see_through": 0.49,
+&"translucency_sharpness": 5.3,
+&"translucency_strength": 2.42,
 &"water_color": Color(0.03137255, 0.10980392, 0.2, 1)
 }
 water_material = {
