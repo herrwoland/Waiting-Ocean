@@ -908,6 +908,12 @@ void fragment() {
 	vec4 world_pos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, depth_tex, 1.0);
 	world_pos.xyz /= world_pos.w;
 	float through = clamp(VERTEX.z - world_pos.z, 0.0, 8.0); // meters of water in the way
+	// What really lies behind the water, straight through. The bent look below only picks the
+	// colour seen through the surface: how deep the water is and how clear it reads come from
+	// here. Taken from the bent look, they changed wherever it landed on the shallower floor nearer
+	// the camera -- a see-through band across the screen that moved as the view tilted.
+	vec3 straight_pos = world_pos.xyz;
+	float straight_depth = depth_tex;
 	vec3 refr_n = normalize(vec3(-gradient.x, 1.0, -gradient.y));
 	vec2 look_uv = SCREEN_UV + (VIEW_MATRIX * vec4(refr_n, 0.0)).xy
 			* surface_refraction * through / max(-VERTEX.z, 1.0);
@@ -928,10 +934,10 @@ void fragment() {
 	// shallow water is short, further out at a grazing angle long -- which drew a ring of glassy
 	// water (with a foam line on it) around the player that moved with them. Something above the
 	// water behind it (a rock seen past a crest) keeps the old along-the-view edge.
-	float behind_y = (INV_VIEW_MATRIX * vec4(world_pos.xyz, 1.0)).y;
+	float behind_y = (INV_VIEW_MATRIX * vec4(straight_pos, 1.0)).y;
 	float smooth_alpha = behind_y < world_frag.y
 			? smoothstep(0.0, 0.5, world_frag.y - behind_y)
-			: 1.0 - smoothstep(world_pos.z + 0.66, world_pos.z, VERTEX.z);
+			: 1.0 - smoothstep(straight_pos.z + 0.66, straight_pos.z, VERTEX.z);
 	ALPHA *= clamp(smooth_alpha, 0.00, 1.0);
 	// Foam floats on the water: it stays as solid where the water itself thins to clear. The swash's
 	// sheet is a few cm thick, nearly clear by depth: a little sheen keeps the wet sand reading.
@@ -954,13 +960,16 @@ void fragment() {
 	vec3 screen_albedo = texture(screen_texture, look_uv, 0.0).rgb;
 	// The whole way the light travels through the water, not just its depth along the view axis:
 	// that shrinks as the view grazes the surface, and shallows seen at a slant went glassy.
-	float through_water = VERTEX.z > world_pos.z ? length(world_pos.xyz - VERTEX) : 0.0;
+	// The longer of the straight and the bent way: the bent one only ever deepens it (a hull just
+	// under the surface stays hidden in the sea as before), never thins it into a band.
+	float through_water = VERTEX.z > straight_pos.z ? length(straight_pos - VERTEX) : 0.0;
+	if (VERTEX.z > world_pos.z) through_water = max(through_water, length(world_pos.xyz - VERTEX));
 	// The thin top of a wave is only a metre or so of water, however far the view goes on behind
 	// it, so what stands above the sea beyond it (the sky, a hull) shows through it a little.
 	// Not what lies below the surface: from above the sea, the view through a crest meets the next
 	// wave, never the deep, and the deep must not darken it.
 	float crest = crest_amount(wave_height);
-	bool above_sea = depth_tex <= 0.0 || behind_y > world_frag.y - wave_height;
+	bool above_sea = straight_depth <= 0.0 || behind_y > world_frag.y - wave_height;
 	float colour_path = above_sea
 			? mix(through_water, min(through_water, 1.0), clamp(crest, 0.0, 1.0) * sss_see_through)
 			: through_water;
@@ -995,7 +1004,7 @@ void fragment() {
 		vec3 view_ray = normalize(world_frag - CAMERA_POSITION_WORLD);
 		vec3 into_sea = refract(view_ray, normalize(vec3(-gradient.x, 1.0, -gradient.y)), 1.0 / water_ior);
 		if (dot(into_sea, into_sea) < 0.5) into_sea = view_ray;
-		float water_len = depth_tex > 0.0 ? min(length(world_pos.xyz - VERTEX), 2000.0) : 2000.0; // 0 = nothing behind.
+		float water_len = straight_depth > 0.0 ? min(length(straight_pos - VERTEX), 2000.0) : 2000.0; // 0 = nothing behind.
 		vec3 glow = underwater_glow(world_frag, into_sea, water_len);
 		emission_glow = glow * glow_above_water * (1.0 - clamp(foam_factor * foam_alpha * foam_alpha, 0.0, 1.0));
 	}
