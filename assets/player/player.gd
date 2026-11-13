@@ -44,11 +44,15 @@ enum State { WALK, SWIM, PILOT, OPERATE, CLIMB }
 ## starts to get heavier on the way there (see _turn_head()).
 @export_range(0.0, 180.0, 1.0) var ladder_look_limit := 110.0
 @export_range(0.0, 180.0, 1.0) var ladder_look_soft := 70.0
-## Share of the body under the water before we swim (wading in from the beach, or landing in it).
+## Share of the body under the water before we swim when we land in it (falling or jumping in).
 @export_range(0.0, 1.0, 0.01) var swim_enter_submerged: float = 0.7
-## Standing on the bottom with this share of the body out of the water, we walk (wade) again.
-## Kept below swim_enter_submerged's complement so the two never flip back and forth.
-@export_range(0.0, 1.0, 0.01) var walk_out_of_water: float = 0.4
+## Wading: with the feet on the bottom we walk for as long as the eyes stay this far above the
+## water (m), and swim once it rises this far over them. The gap between the two keeps a wave
+## lapping at the chin from flipping us back and forth.
+@export_range(0.0, 0.5, 0.01, 'suffix:m') var wade_head_clearance: float = 0.1
+## Swimming, the legs find the bottom when it is within this reach below the feet (m): standing
+## there with the head out of the water, we walk (wade) again.
+@export_range(0.0, 1.5, 0.01, 'suffix:m') var wade_leg_reach: float = 0.6
 ## While standing on the bottom, how long the water must stay past either mark before we switch
 ## (s): a wave washing past is not a reason to start swimming, nor its trough to stand up.
 @export_range(0.0, 2.0, 0.01, 'suffix:s') var swim_switch_delay: float = 0.35
@@ -697,10 +701,16 @@ func _check_enter_swim() -> void:
 	if water.is_water_hole(global_position):
 		return # inside a HOLE wave blocker (eg. a dry shaft) there is no water to swim in
 	var surface_y: float = water.get_wave_height(global_position)
-	var deep_enough := surface_y - global_position.y > swim_enter_submerged * _body_height()
-	# Falling or jumping in: at once. Wading out from the shore: only once it has stayed deep.
+	var on_floor := is_on_floor()
+	# Wading, the feet leave the floor for a moment on a slope or a step: the legs still reach it.
+	if not on_floor and surface_y - global_position.y > swim_enter_submerged * _body_height():
+		on_floor = _ground_under_feet() > -INF and velocity.y > -4.0
+	# Falling or jumping in: once most of the body is under, at once. Wading out from the shore:
+	# only once the water has stayed over the eyes.
+	var deep_enough := surface_y - global_position.y > swim_enter_submerged * _body_height() if not on_floor \
+			else surface_y > global_position.y + _eye_height() + wade_head_clearance
 	_swim_switch_time = _swim_switch_time + get_physics_process_delta_time() if deep_enough else 0.0
-	if deep_enough and (not is_on_floor() or _swim_switch_time >= swim_switch_delay):
+	if deep_enough and (not on_floor or _swim_switch_time >= swim_switch_delay):
 		_swim_switch_time = 0.0
 		state = State.SWIM
 		_release_deck()
@@ -708,6 +718,21 @@ func _check_enter_swim() -> void:
 		collider.disabled = false
 		_play_splash(surface_y)
 		surface_ripples.emitting = true
+
+## Height of the eyes above the feet when standing, without the push off the waterline.
+func _eye_height() -> float:
+	return camera.global_position.y - _eye_offset - global_position.y
+
+## The bottom under the feet, if the legs reach it (see wade_leg_reach): its height, or -INF.
+## A ray rather than is_on_floor: swimming we hang in the water and touch nothing.
+func _ground_under_feet() -> float:
+	var from := global_position + Vector3.UP * 0.3
+	var query := PhysicsRayQueryParameters3D.create(from, global_position + Vector3.DOWN * wade_leg_reach,
+			collision_mask, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit or (hit.get('normal') as Vector3).y < 0.5: # a wall or an overhang is no footing
+		return -INF
+	return (hit.get('position') as Vector3).y
 
 ## Height of the player's body (the collider), feet to crown.
 func _body_height() -> float:
@@ -717,10 +742,13 @@ func _body_height() -> float:
 func _check_exit_swim() -> void:
 	if not water:
 		return
-	# Standing on ground (eg. a beach slope or the ship's deck) in shallow-enough
-	# water means we can wade: back to walking, which also restores jumping.
-	var surface_y: float = water.get_wave_height(global_position)
-	var shallow := is_on_floor() and surface_y - global_position.y < (1.0 - walk_out_of_water) * _body_height()
+	# The legs reach the bottom (eg. a beach slope or the ship's deck) and, standing there, the
+	# head would be out of the water: we can wade, back to walking, which also restores jumping.
+	var ground_y := _ground_under_feet()
+	var shallow := false
+	if ground_y > -INF:
+		var surface_y: float = water.get_wave_height(Vector3(global_position.x, ground_y, global_position.z))
+		shallow = surface_y < ground_y + _eye_height() - wade_head_clearance
 	_swim_switch_time = _swim_switch_time + get_physics_process_delta_time() if shallow else 0.0
 	if shallow and _swim_switch_time >= swim_switch_delay:
 		_swim_switch_time = 0.0
