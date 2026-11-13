@@ -54,6 +54,7 @@
 [ext_resource type="Texture2D" path="res://assets/textures/Ground057_1K-PNG_Normal.res" id="99_gnorm"]
 [ext_resource type="Script" uid="uid://u82lbsa145at" path="res://assets/scripts/world/shore_zone.gd" id="100_shorezone"]
 [ext_resource type="Image" path="res://assets/water/shore/Main_ShoreZone.res" id="101_shoremap"]
+[ext_resource type="Shader" uid="uid://basf125glkoyq" path="res://assets/shaders/terrain/terrain_wet.gdshader" id="102_terrainwet"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_d13ii"]
 seed = 666
@@ -197,6 +198,8 @@ _shader_parameters = {
 &"projection_threshold": null
 }
 world_background = 0
+shader_override_enabled = true
+shader_override = ExtResource("102_terrainwet")
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hrvbo"]
 transparency = 4
