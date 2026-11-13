@@ -4,6 +4,7 @@ shader_type particles;
 
 global uniform sampler2DArray displacements;
 global uniform uint num_cascades;
+#include "res://assets/shaders/spatial/shore.gdshaderinc"
 
 uniform vec3 center;                     // Camera position, set every frame.
 uniform float radius = 40.0;             // Drops fall in a disc this wide around the camera (m).
@@ -29,7 +30,7 @@ vec3 displacement(vec2 xz) {
 	vec3 d = vec3(0.0);
 	for (uint i = 0u; i < min(num_cascades, 4u); i++) {
 		vec4 s = map_scales[i];
-		d += textureLod(displacements, vec3(xz * s.xy, float(i)), 0.0).xyz * s.z;
+		d += textureLod(displacements, vec3(xz * s.xy, float(i)), 0.0).xyz * s.z * shore_damp(shore_sample(xz), 1.0 / s.x);
 	}
 	return d;
 }
@@ -43,7 +44,7 @@ float wave_height(vec2 xz) {
 		d = displacement(rest);
 		rest = xz - d.xz;
 	}
-	return water_level + d.y;
+	return water_level + d.y + shore_wave(shore_sample(rest)).x;
 }
 
 void start() {

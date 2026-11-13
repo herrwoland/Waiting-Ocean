@@ -207,3 +207,19 @@ underwater_view={
 "type": "vec4",
 "value": Vector4(0, -1, 1, 1)
 }
+shore_map={
+"type": "sampler2D",
+"value": ""
+}
+shore_rect={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+shore_a={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+shore_b={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}

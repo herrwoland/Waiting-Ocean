@@ -8,6 +8,8 @@ render_mode world_vertex_coords, depth_draw_always, cull_disabled;
 #define MAX_CASCADES 8    // I am unsure how to generalize this.
 #define REFLECTANCE  0.021 // Reflectance from air to seawater (eta=1.34).
 
+#include "res://assets/shaders/spatial/shore.gdshaderinc"
+
 global uniform vec4 water_color : source_color;
 global uniform vec4 foam_color : source_color;
 uniform bool backface_culling = true; // Toggle in the material inspector: discards back faces when on.
@@ -366,6 +368,9 @@ varying float blocker_mask;
 varying float blocker_hole;
 varying float underside; // 1.0 when this fragment is the water surface seen from below.
 varying float rain_wet; // How rain-beaten this bit of surface is (0..1), for the lighting.
+varying vec2 shore_depth; // Shore zone (see shore.gdshaderinc): (depth to the floor, zone weight), for the normals.
+varying vec2 shore_slope; // Slope of the shore waves (dh/dx, dh/dz).
+varying float shore_foam;
 
 // Wave-blocker attenuation at a rest position (pre-displacement). Returns
 // (mask, hole, calm height): mask 0 inside a blocker rising to 1 across its fade width;
@@ -537,6 +542,8 @@ void vertex() {
 	vec3 blocker = wave_blocker_eval(VERTEX.xz);
 	blocker_mask = blocker.x;
 	blocker_hole = blocker.y;
+	vec4 shore = shore_sample(VERTEX.xz);
+	shore_depth = shore.xz;
 	// is optimized: first check if the distance is greater than 150 meters.
 	// if so, then don't calculate the displacement.
 	float distance_cam = length(VERTEX.xz - CAMERA_POSITION_WORLD.xz);
@@ -548,7 +555,8 @@ void vertex() {
 		vec3 displacement = vec3(0);
 		for (uint i = 0U; i < num_cascades; ++i) {
 			vec4 scales = map_scales[i];
-			displacement += texture(displacements, vec3(UV*scales.xy, float(i))).xyz * scales.z;
+			displacement += texture(displacements, vec3(UV*scales.xy, float(i))).xyz * scales.z
+					* shore_damp(shore, 1.0 / scales.x); // the shallows calm the long waves first
 		}
 		wake_churn = wake_sample(VERTEX.xz).y; // world_vertex_coords: VERTEX is in world space.
 		// Domes smooth out the waves riding on them; churned wake water is flatter too.
@@ -562,7 +570,17 @@ void vertex() {
 	}
 	// Calmed water lies on its blocker's calm plane: sea level by a shore, the swell under a ship.
 	float calm_lift = blocker.z * (1.0 - blocker_mask);
-	VERTEX.y += shape.x + calm_lift;
+	// Shore waves (no distance fade: the CPU never fades them either). Their slope comes from two
+	// more looks half a metre away, only inside a shore zone.
+	vec2 shore_wave_here = shore_wave(shore);
+	shore_foam = shore_wave_here.y;
+	shore_slope = vec2(0.0);
+	if (shore.z > 0.0) {
+		shore_slope = (vec2(shore_wave(shore_sample(VERTEX.xz + vec2(0.5, 0.0))).x,
+				shore_wave(shore_sample(VERTEX.xz + vec2(0.0, 0.5))).x) - shore_wave_here.x) * 2.0;
+	}
+	wave_height += shore_wave_here.x;
+	VERTEX.y += shape.x + calm_lift + shore_wave_here.x;
 }
 
 /** Filter weights for a cubic B-spline. */
@@ -665,7 +683,8 @@ void fragment() {
 		float bilinear = min(1.0, ppm*0.1);
 		vec4 normal_sample = texture(normals, coords);
 		if (bilinear < 1.0) normal_sample = mix(texture_bicubic(normals, coords), normal_sample, bilinear);
-		gradient += normal_sample.xyw * vec3(scales.ww, 1.0);
+		gradient += normal_sample.xyw * vec3(scales.ww, 1.0)
+				* shore_damp(vec4(shore_depth.x, 0.0, shore_depth.y, 0.0), 1.0 / scales.x);
 	}
 	// Foam texture. The 3.0 keeps the foam exactly as strong as before for a white texture (this
 	// used to be one stretched read per cascade, summed).
@@ -688,7 +707,7 @@ void fragment() {
 	gradient.xy *= 1.0 - rain_flatten * rain_intensity;
 	rain_wet = rain_intensity * rain_matte;
 	float wave_foam = smoothstep(0.0, 1.0, gradient.z*0.75);
-	foam_factor = wave_foam * exp(-dist*0.0075);
+	foam_factor = max(wave_foam * exp(-dist*0.0075), shore_foam * foam_tex);
 
 	// A back face is the underside when WE are under the water, not when this particular scrap
 	// of sea happens to sit above our eyes: that comparison is a horizontal plane at eye level,
@@ -794,6 +813,7 @@ void fragment() {
 	if (underside > 0.5) {
 		gradient *= mix(0.015, normal_strength, exp(-length(VERTEX)*0.0175));
 		gradient.xy += shape.yz; // Water shapes are large and smooth, never faded with distance.
+		gradient.xy += shore_slope; // So are the shore waves.
 		gradient.xy += rain_slope * rain_underside_refraction;
 		vec3 n_down = (VIEW_MATRIX * vec4(-normalize(vec3(-gradient.x, 1.0, -gradient.y)), 0.0)).xyz;
 		vec4 under = shade_underside(VIEW, n_down, SCREEN_UV, max(foam_factor * foam_alpha * foam_alpha, contact.x));
@@ -845,7 +865,9 @@ void fragment() {
 	// surface could ever read DARKER than the water, and anything lurking down there was
 	// wiped out rather than showing as a shadow.
 	vec3 screen_albedo = texture(screen_texture, look_uv, 0.0).rgb;
-	float through_water = max(VERTEX.z - world_pos.z, 0.0);
+	// The whole way the light travels through the water, not just its depth along the view axis:
+	// that shrinks as the view grazes the surface, and shallows seen at a slant went glassy.
+	float through_water = VERTEX.z > world_pos.z ? length(world_pos.xyz - VERTEX) : 0.0;
 	// The thin top of a wave is only a metre or so of water, however far the view goes on behind
 	// it, so what stands above the sea beyond it (the sky, a hull) shows through it a little.
 	// Not what lies below the surface: from above the sea, the view through a crest meets the next
@@ -891,6 +913,7 @@ void fragment() {
 
 	gradient *= mix(0.015, normal_strength, exp(-dist*0.0175)); // Blend normal with terrain normal as distance increases.
 	gradient.xy += shape.yz; // Water shapes are large and smooth, never faded with distance.
+	gradient.xy += shore_slope; // So are the shore waves.
 	gradient.xy += rain_slope;
 	vec3 world_normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
 	NORMAL = (VIEW_MATRIX * vec4(world_normal, 0.0)).xyz;

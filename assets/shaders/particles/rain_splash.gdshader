@@ -11,6 +11,7 @@ uniform float gravity = 9.8;
 // under the surface gets tinted by the water). Same lookup as rain_drops.gdshader.
 global uniform sampler2DArray displacements;
 global uniform uint num_cascades;
+#include "res://assets/shaders/spatial/shore.gdshaderinc"
 uniform float water_level = 0.0;
 uniform vec4 map_scales[4];
 
@@ -21,11 +22,11 @@ float wave_height(vec2 xz) {
 		d = vec3(0.0);
 		for (uint i = 0u; i < min(num_cascades, 4u); i++) {
 			vec4 s = map_scales[i];
-			d += textureLod(displacements, vec3(rest * s.xy, float(i)), 0.0).xyz * s.z;
+			d += textureLod(displacements, vec3(rest * s.xy, float(i)), 0.0).xyz * s.z * shore_damp(shore_sample(rest), 1.0 / s.x);
 		}
 		rest = xz - d.xz;
 	}
-	return water_level + d.y;
+	return water_level + d.y + shore_wave(shore_sample(rest)).x;
 }
 
 void start() {

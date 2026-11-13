@@ -67,7 +67,11 @@ layout(set = 0, binding = 4, std140) uniform Params {
 	vec4 pulse_e;         // x front glow, y grain seed, z dissolve, w opacity
 	vec4 pulse_f;         // x seconds since sent, y front speed (m/s), z afterglow time (s), w afterglow flare
 	vec4 pulse_g;         // x how bright an echo is at the edge of the range compared to close by, y echo of the sea surface itself
+	vec4 shore_rect;      // Shore zone, see shore.gdshaderinc: (corner x, corner z, 1 / size x, 1 / size z)
+	vec4 shore_a;         // (wave height, wavelength, phase, stagger)
+	vec4 shore_b;         // (shoal depth, run-up height, run-up reach, damping depth per m of wavelength)
 } p;
+layout(set = 0, binding = 8) uniform sampler2D shore_map;
 
 #include "water_shapes.glsli"
 
@@ -123,12 +127,46 @@ vec2 wave_blocker_calm(vec2 pos) {
 	return vec2(mask, calm_height);
 }
 
+// Shore zone: mirrors shore.gdshaderinc exactly (see there).
+vec4 shore_sample(vec2 xz) {
+	vec2 uv = (xz - p.shore_rect.xy) * p.shore_rect.zw;
+	if (p.shore_rect.z <= 0.0 || uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
+		return vec4(400.0, 2000.0, 0.0, 0.0);
+	}
+	return textureLod(shore_map, uv, 0.0);
+}
+
+float shore_damp(vec4 s, float wavelength) {
+	return mix(1.0, smoothstep(0.0, p.shore_b.w * wavelength, s.x), s.z);
+}
+
+float shore_wave(vec4 s) {
+	if (s.z <= 0.0) return 0.0;
+	float depth = s.x;
+	float shoal = max(p.shore_b.x, 0.1);
+	float stagger = s.w * p.shore_a.w;
+	float ph = fract(s.y / max(p.shore_a.y, 1.0) + p.shore_a.z + stagger);
+	float steep = clamp(1.0 - depth / shoal, 0.0, 1.0);
+	float g = pow(ph, 1.0 + 1.5 * steep);
+	float c = pow(0.5 + 0.5 * cos(6.2831853 * g), 1.0 + 2.0 * steep);
+	float amp = p.shore_a.x * pow(shoal / max(depth, 0.25 * shoal), 0.25) * (1.0 - smoothstep(shoal, 3.0 * shoal, depth));
+	amp = min(amp, 0.39 * max(depth, 0.0));
+	float height = amp * (2.0 * c - 1.0);
+	float q = fract(p.shore_a.z + stagger);
+	float rise = q < 0.15 ? smoothstep(0.0, 0.15, q) : 1.0 - smoothstep(0.15, 0.9, q);
+	float reach = max(p.shore_b.z, 1.0);
+	float band = smoothstep(-1.3 * reach, -reach, s.y) * (1.0 - smoothstep(0.0, 4.0, s.y));
+	height += p.shore_b.y * rise * band;
+	return height * s.z;
+}
+
 vec3 displacement(vec2 xz) {
 	vec3 d = vec3(0.0);
 	int n = int(p.absorption.a);
+	vec4 shore = shore_sample(xz);
 	for (int i = 0; i < n; i++) {
 		vec4 s = p.map_scales[i];
-		d += textureLod(displacements, vec3(xz * s.xy, float(i)), 0.0).xyz * s.z;
+		d += textureLod(displacements, vec3(xz * s.xy, float(i)), 0.0).xyz * s.z * shore_damp(shore, 1.0 / s.x);
 	}
 	return d;
 }
@@ -144,7 +182,7 @@ float wave_height(vec2 xz) {
 		d = displacement(rest) * (1.0 - shape.y) * calm.x;
 		rest = xz - d.xz;
 	}
-	return p.effect2.y + d.y + shape.x + calm.y * (1.0 - calm.x);
+	return p.effect2.y + d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest));
 }
 
 #ifndef MODE_SHAFTS

@@ -26,6 +26,7 @@ group_uniforms cascade_data;
 uniform vec4 map_scales[MAX_CASCADES];               // Scales for displacement/normal maps. Packed: [uv scale, displacement scale, normal scale]
 global uniform uint num_cascades;
 global uniform sampler2DArray displacements;         // Each layer represents one wave cascade.
+#include "res://assets/shaders/spatial/shore.gdshaderinc"
 global uniform sampler2DArray normals : hint_normal; // Each layer represents one wave cascade.
 
 // Source: https://www.shadertoy.com/view/Xt3cDn
@@ -80,8 +81,9 @@ void process() {
 			// --- PARTICLE INITIALIZATION ---
 			// Read foam and normal information from normal maps.
 			vec3 gradient = vec3(0);
+			vec4 shore = shore_sample(START_POS.xz); // the shallows calm the waves (see shore.gdshaderinc)
 			for (uint i = 0U; i < num_cascades; ++i)
-				gradient += texture(normals, vec3(START_POS.xz*map_scales[i].xy, float(i))).xyw;
+				gradient += texture(normals, vec3(START_POS.xz*map_scales[i].xy, float(i))).xyw * shore_damp(shore, 1.0 / map_scales[i].x);
 			vec3 normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
 			float foam = gradient.z;
 			float normal_factor = mix(0.25, 1.0, min((normal.y - 0.92) / (0.99 - 0.92), 1.0)); // [0.92..0.99] -> [0.25..1]
@@ -106,8 +108,10 @@ void process() {
 			vec3 displacement = vec3(0);
 			for (uint i = 0U; i < num_cascades; ++i) {
 				vec3 scales = map_scales[i].xyz;
-				displacement += texture(displacements, vec3(START_POS.xz*scales.xy, float(i))).xyz * scales.z;
+				displacement += texture(displacements, vec3(START_POS.xz*scales.xy, float(i))).xyz * scales.z
+						* shore_damp(shore_sample(START_POS.xz), 1.0 / scales.x);
 			}
+			displacement.y += shore_wave(shore_sample(START_POS.xz)).x;
 			// We multiply the horizontal displacement by a factor < 1 to prevent jittering that occasionally
 			// occurs from this method.
 			displacement *= vec3(0.75,1,0.75);

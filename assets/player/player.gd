@@ -44,8 +44,14 @@ enum State { WALK, SWIM, PILOT, OPERATE, CLIMB }
 ## starts to get heavier on the way there (see _turn_head()).
 @export_range(0.0, 180.0, 1.0) var ladder_look_limit := 110.0
 @export_range(0.0, 180.0, 1.0) var ladder_look_soft := 70.0
-@export var swim_enter_depth: float = 0.6 # how deep water must be over the feet before we start swimming
-@export var swim_exit_depth: float = 0.45 # while grounded, water shallower than this switches back to walking (wading)
+## Share of the body under the water before we swim (wading in from the beach, or landing in it).
+@export_range(0.0, 1.0, 0.01) var swim_enter_submerged: float = 0.7
+## Standing on the bottom with this share of the body out of the water, we walk (wade) again.
+## Kept below swim_enter_submerged's complement so the two never flip back and forth.
+@export_range(0.0, 1.0, 0.01) var walk_out_of_water: float = 0.4
+## While standing on the bottom, how long the water must stay past either mark before we switch
+## (s): a wave washing past is not a reason to start swimming, nor its trough to stand up.
+@export_range(0.0, 2.0, 0.01, 'suffix:s') var swim_switch_delay: float = 0.35
 @export var sink_speed: float = 1.0 # constant downward speed while swimming unless swim_up is held
 ## Keeping afloat (holding swim_up at the surface) rides the water exactly, like a Water
 ## surface_point: the eyes this high above it (m), carried up, down and round with the waves.
@@ -123,6 +129,7 @@ const GRAVITY: float = 9.8
 var _lowpass_idx: int = -1
 var _last_eye_submersion: float = INF
 var _head_base_y: float = 1.6
+var _swim_switch_time := 0.0 # How long the water has been past the swim/walk mark (see swim_switch_delay).
 var _eye_offset: float = 0.0
 var _ears_underwater: bool = false
 var _submerged_at_msec: int = 0 # when the ears last went under, for the surfacing gasp
@@ -688,7 +695,11 @@ func _check_enter_swim() -> void:
 	if water.is_water_hole(global_position):
 		return # inside a HOLE wave blocker (eg. a dry shaft) there is no water to swim in
 	var surface_y: float = water.get_wave_height(global_position)
-	if surface_y - global_position.y > swim_enter_depth:
+	var deep_enough := surface_y - global_position.y > swim_enter_submerged * _body_height()
+	# Falling or jumping in: at once. Wading out from the shore: only once it has stayed deep.
+	_swim_switch_time = _swim_switch_time + get_physics_process_delta_time() if deep_enough else 0.0
+	if deep_enough and (not is_on_floor() or _swim_switch_time >= swim_switch_delay):
+		_swim_switch_time = 0.0
 		state = State.SWIM
 		_release_deck()
 		_air_momentum = Vector3.ZERO # the water takes it
@@ -696,13 +707,21 @@ func _check_enter_swim() -> void:
 		_play_splash(surface_y)
 		surface_ripples.emitting = true
 
+## Height of the player's body (the collider), feet to crown.
+func _body_height() -> float:
+	var capsule := collider.shape as CapsuleShape3D if collider else null
+	return capsule.height if capsule else 1.8
+
 func _check_exit_swim() -> void:
 	if not water:
 		return
 	# Standing on ground (eg. a beach slope or the ship's deck) in shallow-enough
 	# water means we can wade: back to walking, which also restores jumping.
 	var surface_y: float = water.get_wave_height(global_position)
-	if is_on_floor() and surface_y - global_position.y < swim_exit_depth:
+	var shallow := is_on_floor() and surface_y - global_position.y < (1.0 - walk_out_of_water) * _body_height()
+	_swim_switch_time = _swim_switch_time + get_physics_process_delta_time() if shallow else 0.0
+	if shallow and _swim_switch_time >= swim_switch_delay:
+		_swim_switch_time = 0.0
 		state = State.WALK
 		swim_stroke = Vector3.ZERO
 		surface_ripples.emitting = false

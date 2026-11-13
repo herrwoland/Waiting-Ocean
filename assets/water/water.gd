@@ -240,6 +240,31 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 		wake_coverage = value
 		if _wake_map: _wake_map.free_resources(); _wake_map = null
 
+## Shore waves, in a ShoreZone (see shore_zone.gd and shore.gdshaderinc): the sea's own waves
+## die down in the shallows and these roll in instead, steepen, break and run up the beach.
+@export_group('Shore')
+## The shore waves' height for the sea state: 1 = as tall as the open sea's typical crest.
+@export_range(0.0, 3.0, 0.01) var shore_wave_height := 0.5
+## They never fall below this, so even a still sea laps at the beach (m).
+@export_range(0.0, 2.0, 0.01, 'suffix:m') var shore_wave_min_height := 0.15
+## ...nor rise above this, however wild the open sea (m).
+@export_range(0.1, 5.0, 0.01, 'suffix:m') var shore_wave_max_height := 1.0
+## Crest to crest (m).
+@export_range(4.0, 120.0, 0.5, 'suffix:m') var shore_wavelength := 26.0
+## Seconds between crests reaching the beach.
+@export_range(2.0, 30.0, 0.1, 'suffix:s') var shore_wave_period := 8.0
+## Depth where they start to grow and steepen (m); they appear from three times as deep.
+@export_range(0.5, 30.0, 0.1, 'suffix:m') var shore_shoal_depth := 5.0
+## How high the water climbs the sand after each wave, as a share of the wave's height.
+@export_range(0.0, 4.0, 0.01) var shore_run_up := 0.6
+## Furthest inland the run-up may reach (m); hollows beyond it stay dry.
+@export_range(1.0, 100.0, 0.5, 'suffix:m') var shore_run_up_reach := 25.0
+## How much the crests are staggered along the coast, in waves (0 = all in step).
+@export_range(0.0, 2.0, 0.01) var shore_stagger := 0.6
+## Depth where the longest waves (the largest cascade) are no longer calmed by the floor (m).
+## Shorter cascades keep going into shallower water, in proportion to their tile length.
+@export_range(1.0, 300.0, 0.5, 'suffix:m') var shore_damping_depth := 40.0
+
 ## Marine snow: specks hanging in the water around the camera while it is underwater.
 @export_group('Marine Snow')
 @export var marine_snow_enabled := true
@@ -336,6 +361,13 @@ var _blocker_c := PackedVector4Array()
 var _contact_nodes := [] # See _contact_body.
 var _contact_bodies := PackedVector4Array()
 var _contact_refresh := 0.0
+var _shore: Node # The ShoreZone in use (the first one found), see _update_shore.
+var _shore_img: Image
+var _shore_rect := Vector4.ZERO # As the shader's shore_rect.
+var _shore_a := Vector4.ZERO
+var _shore_b := Vector4.ZERO
+var _shore_phase := 0.0
+var _shore_frame := -1
 var _cascade_height_var := PackedFloat32Array() # See _measure_wave_amplitude.
 var _wave_amplitude := -1.0
 
@@ -362,7 +394,7 @@ func get_wave_height(global_position: Vector3, masked: bool = true) -> float:
 	for i in 3:
 		displacement = _cpu_displacement(rest) * wave_scale
 		rest = xz - Vector2(displacement.x, displacement.z)
-	return displacement.y + shape.x + calm.y * (1.0 - calm.x)
+	return displacement.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest))
 
 ## Where a piece of the water surface is right now, given where it sits at rest (x, z with no
 ## waves): the waves carry it round in a small loop as well as up and down. Following one piece
@@ -373,7 +405,7 @@ func surface_point(rest: Vector2, masked: bool = true) -> Vector3:
 	var calm := blocker_calm(Vector3(rest.x, 0.0, rest.y)) if masked else Vector2(1.0, 0.0)
 	var wave_scale := (1.0 - shape.y) * calm.x
 	var d := _cpu_displacement(rest) * wave_scale
-	var y := d.y + shape.x + calm.y * (1.0 - calm.x)
+	var y := d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest))
 	return Vector3(rest.x + d.x, y, rest.y + d.z) # same height convention as get_wave_height()
 
 ## The rest position (see surface_point) of the water that is over `global_position` right now.
@@ -466,6 +498,7 @@ func _ready() -> void:
 
 func _process(delta : float) -> void:
 	_update_wave_blockers()
+	_update_shore()
 	_update_water_shapes(delta)
 	_update_glows()
 	_update_beams()
@@ -557,10 +590,99 @@ func _cpu_cascade_count() -> int:
 ## The displacement of the CPU cascades together at a rest position (see surface_point).
 func _cpu_displacement(rest: Vector2) -> Vector3:
 	var d := Vector3.ZERO
+	var shore := shore_sample(rest)
 	for c in mini(_imgs.size(), map_scales.size()):
 		var scales: Vector4 = map_scales[c]
-		d += _sample_displacement(c, rest * Vector2(scales.x, scales.y)) * scales.z
+		d += _sample_displacement(c, rest * Vector2(scales.x, scales.y)) * scales.z * shore_damp(shore, 1.0 / scales.x)
 	return d
+
+## The shore map at a rest position: (floor depth, distance to the shoreline, zone weight,
+## stagger), open sea outside a ShoreZone. Mirrors shore_sample() in shore.gdshaderinc, bilinear
+## filtering included.
+func shore_sample(rest: Vector2) -> Vector4:
+	_shore_params_now()
+	if _shore_img == null or _shore_rect.z <= 0.0:
+		return Vector4(400.0, 2000.0, 0.0, 0.0)
+	var uv := (rest - Vector2(_shore_rect.x, _shore_rect.y)) * Vector2(_shore_rect.z, _shore_rect.w)
+	if uv.x < 0.0 or uv.y < 0.0 or uv.x > 1.0 or uv.y > 1.0:
+		return Vector4(400.0, 2000.0, 0.0, 0.0)
+	var w := _shore_img.get_width()
+	var h := _shore_img.get_height()
+	var x := uv.x * w - 0.5
+	var y := uv.y * h - 0.5
+	var x0 := floori(x)
+	var y0 := floori(y)
+	var fx := x - x0
+	var fy := y - y0
+	var xa := clampi(x0, 0, w - 1)
+	var xb := clampi(x0 + 1, 0, w - 1)
+	var ya := clampi(y0, 0, h - 1)
+	var yb := clampi(y0 + 1, 0, h - 1)
+	var top := _shore_img.get_pixel(xa, ya).lerp(_shore_img.get_pixel(xb, ya), fx)
+	var bottom := _shore_img.get_pixel(xa, yb).lerp(_shore_img.get_pixel(xb, yb), fx)
+	var c := top.lerp(bottom, fy)
+	return Vector4(c.r, c.g, c.b, c.a)
+
+## Mirrors shore_damp() in shore.gdshaderinc.
+func shore_damp(s: Vector4, wavelength: float) -> float:
+	return lerpf(1.0, smoothstep(0.0, _shore_b.w * wavelength, s.x), s.z)
+
+## Height of the shore waves at a rest position. Mirrors shore_wave() in shore.gdshaderinc.
+func shore_wave(s: Vector4) -> float:
+	if s.z <= 0.0: return 0.0
+	var depth := s.x
+	var shoal := maxf(_shore_b.x, 0.1)
+	var stagger := s.w * _shore_a.w
+	var p := fposmod(s.y / maxf(_shore_a.y, 1.0) + _shore_a.z + stagger, 1.0)
+	var steep := clampf(1.0 - depth / shoal, 0.0, 1.0)
+	var g := pow(p, 1.0 + 1.5 * steep)
+	var c := pow(0.5 + 0.5 * cos(TAU * g), 1.0 + 2.0 * steep)
+	var amp := _shore_a.x * pow(shoal / maxf(depth, 0.25 * shoal), 0.25) * (1.0 - smoothstep(shoal, 3.0 * shoal, depth))
+	amp = minf(amp, 0.39 * maxf(depth, 0.0))
+	var height := amp * (2.0 * c - 1.0)
+	var q := fposmod(_shore_a.z + stagger, 1.0)
+	var rise := smoothstep(0.0, 0.15, q) if q < 0.15 else 1.0 - smoothstep(0.15, 0.9, q)
+	var reach := maxf(_shore_b.z, 1.0)
+	var band := smoothstep(-1.3 * reach, -reach, s.y) * (1.0 - smoothstep(0.0, 4.0, s.y))
+	height += _shore_b.y * rise * band
+	return height * s.z
+
+## The shore waves' parameters for this frame, worked out once per frame by whatever asks first
+## (physics runs before _process), so every height read this frame and the frame drawn agree.
+func _shore_params_now() -> void:
+	var frame := Engine.get_process_frames()
+	if frame == _shore_frame: return
+	_shore_frame = frame
+	if is_inside_tree() and can_process():
+		_shore_phase = fposmod(_shore_phase + get_process_delta_time() / maxf(shore_wave_period, 0.1), 1.0)
+	var height := clampf(shore_wave_height * maxf(_wave_amplitude, 0.0) * 0.5, shore_wave_min_height, maxf(shore_wave_max_height, shore_wave_min_height))
+	_shore_a = Vector4(height, shore_wavelength, _shore_phase, shore_stagger)
+	var longest := 0.0
+	for sc in map_scales: longest = maxf(longest, 1.0 / maxf(sc.x, 1e-6))
+	_shore_b = Vector4(shore_shoal_depth, shore_run_up * height, shore_run_up_reach,
+			shore_damping_depth / maxf(longest, 1.0))
+
+## Finds the ShoreZone and hands its map and this frame's parameters to everything that draws
+## the waves (see shore.gdshaderinc).
+func _update_shore() -> void:
+	var zone := get_tree().get_first_node_in_group(&'shore_zone')
+	if zone != _shore or (zone and zone.baked != _shore_img):
+		_shore = zone
+		_shore_img = zone.baked if zone else null
+		var tex: Texture2D = zone.texture if zone else null
+		RenderingServer.global_shader_parameter_set(&'shore_map', tex)
+		var r: Rect2 = zone.baked_rect if zone else Rect2()
+		_shore_rect = Vector4(r.position.x, r.position.y, 1.0 / r.size.x, 1.0 / r.size.y) if tex and r.size.x > 0.0 else Vector4.ZERO
+		RenderingServer.global_shader_parameter_set(&'shore_rect', _shore_rect)
+		if underwater_effect:
+			underwater_effect.shore_texture = RenderingServer.texture_get_rd_texture(tex.get_rid()) if tex else RID()
+	_shore_params_now()
+	RenderingServer.global_shader_parameter_set(&'shore_a', _shore_a)
+	RenderingServer.global_shader_parameter_set(&'shore_b', _shore_b)
+	if underwater_effect:
+		underwater_effect.shore_rect = _shore_rect
+		underwater_effect.shore_a = _shore_a
+		underwater_effect.shore_b = _shore_b
 func _setup_wave_generator() -> void:
 	if parameters.size() <= 0: return
 	for param in parameters:

@@ -7,7 +7,7 @@ class_name UnderwaterEffect extends CompositorEffect
 const SHADER_PATH := 'res://assets/shaders/compute/underwater_post.glsl'
 const COPY_SHADER_PATH := 'res://assets/shaders/compute/image_copy.glsl'
 const CAUSTICS_SHADER_PATH := 'res://assets/shaders/compute/caustics.glsl'
-const PARAMS_SIZE := 2384 # 2 mat4 + 4 vec4 map scales + 10 vec4 + 2x16 vec4 water shapes + 4 vec4 shadow + fog gradient + 3x8 vec4 blockers + glow info + 2x16 vec4 glows + beam info + 3x8 vec4 beams + beam info 2 + 7 vec4 sonar pulse, std140.
+const PARAMS_SIZE := 2432 # 2 mat4 + 4 vec4 map scales + 10 vec4 + 2x16 vec4 water shapes + 4 vec4 shadow + fog gradient + 3x8 vec4 blockers + glow info + 2x16 vec4 glows + beam info + 3x8 vec4 beams + beam info 2 + 7 vec4 sonar pulse + 3 vec4 shore zone, std140.
 const MAX_WATER_SHAPES := 16
 const MAX_GLOWS := 16
 const MAX_BEAMS := 8
@@ -34,6 +34,11 @@ var blocker_count := 0 # Wave blockers (ShoreCalm and the like), so the waterlin
 var blocker_a := PackedVector4Array()
 var blocker_b := PackedVector4Array()
 var blocker_c := PackedVector4Array()
+# Shore zone (see shore.gdshaderinc), so the waterline follows the shore waves too.
+var shore_texture := RID() # RenderingDevice texture of the baked shore map, or none.
+var shore_rect := Vector4.ZERO
+var shore_a := Vector4.ZERO
+var shore_b := Vector4.ZERO
 var vignette := 0.35
 var silhouette_range := 45.0
 var fog_down := 0.35
@@ -199,6 +204,7 @@ func _render_callback(_callback_type : int, render_data : RenderData) -> void:
 			_uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 4, [_params_buffer]),
 			_uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 5, [_repeat_sampler, _focus_tex]),
 			_uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 7, [_linear_sampler, _shadow_tex()]),
+			_uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 8, [_linear_sampler, _shore_tex()]),
 		])
 		var shafts_list := _rd.compute_list_begin()
 		_rd.compute_list_bind_compute_pipeline(shafts_list, _shafts_pipeline)
@@ -214,6 +220,7 @@ func _render_callback(_callback_type : int, render_data : RenderData) -> void:
 			_uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [_repeat_sampler, displacement_map]),
 			_uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 4, [_params_buffer]),
 			_uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, [_linear_sampler, _shaft_tex]),
+			_uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 8, [_linear_sampler, _shore_tex()]),
 		])
 		var compute_list := _rd.compute_list_begin()
 		_rd.compute_list_bind_compute_pipeline(compute_list, _pipeline)
@@ -324,8 +331,14 @@ func _update_params(scene_data : RenderSceneDataRD, view : int) -> void:
 	data.append_array([pulse_front_glow, pulse_seed, pulse_dissolve, pulse_opacity])
 	data.append_array([pulse_age, pulse_speed, pulse_afterglow, pulse_flare])
 	data.append_array([pulse_far_brightness, pulse_surface, 0.0, 0.0])
+	var has_shore := shore_texture.is_valid() and _rd.texture_is_valid(shore_texture)
+	for v in [shore_rect if has_shore else Vector4.ZERO, shore_a, shore_b]:
+		data.append_array([v.x, v.y, v.z, v.w])
 	var bytes := data.to_byte_array()
 	_rd.buffer_update(_params_buffer, 0, bytes.size(), bytes)
+
+func _shore_tex() -> RID:
+	return shore_texture if shore_texture.is_valid() and _rd.texture_is_valid(shore_texture) else _dummy_shadow_tex
 
 func _shadow_tex() -> RID:
 	return shadow_texture if shadow_texture.is_valid() and _rd.texture_is_valid(shadow_texture) else _dummy_shadow_tex
