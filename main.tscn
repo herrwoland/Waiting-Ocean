@@ -53,7 +53,7 @@
 [ext_resource type="PackedScene" uid="uid://4qgamwgve5v3" path="res://scenes/world/leviathan_waters.tscn" id="90_leviathan"]
 [ext_resource type="Texture2D" path="res://assets/textures/Ground057_1K-PNG_Normal.res" id="99_gnorm"]
 [ext_resource type="Script" uid="uid://u82lbsa145at" path="res://assets/scripts/world/shore_zone.gd" id="100_shorezone"]
-[ext_resource type="Image" uid="uid://4uob6leerfxe" path="res://assets/water/shore/Main_ShoreZone.res" id="101_shoremap"]
+[ext_resource type="Image" uid="uid://dv0bfmno54d8t" path="res://assets/water/shore/Main_ShoreZone.res" id="101_shoremap"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_d13ii"]
 seed = 666
@@ -348,10 +348,10 @@ size = Vector3(25, 4, 110)
 [sub_resource type="Curve3D" id="Curve3D_shorezone"]
 closed = true
 _data = {
-"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -273.6374, 0, -220.77599, 0, 0, 0, 0, 0, 0, -241.51476, 0, -223.95108, 0, 0, 0, 0, 0, 0, -221.85602, 0, -188.42152, 0, 0, 0, 0, 0, 0, -207.06937, 0, -151.3771, 0, 0, 0, 0, 0, 0, -166.48438, 0, -121.68661, 0, 0, 0, 0, 0, 0, -115.30514, 0, -71.3202, 0, 0, 0, 0, 0, 0, -114.831406, 0, -10.366777, 0, 0, 0, 0, 0, 0, -118.441025, 0, 55.279297, 0, 0, 0, 0, 0, 0, -102.91487, 0, 95.950386, 0, 0, 0, 0, 0, 0, -99.59921, 0, 151.97888, 0, 0, 0, 0, 0, 0, -128.59537, 0, 202.81802, 0, 0, 0, 0, 0, 0, -160, 0, 240, 0, 0, 0, 0, 0, 0, -269.70483, 0, 242.17546, 0, 0, 0, 0, 0, 0, -334.47702, 0, 124.2544, 0, 0, 0, 0, 0, 0, -329.0653, 0, 53.764404, 0, 0, 0, 0, 0, 0, -361.86108, 0, -31.652462, 0, 0, 0, 0, 0, 0, -363.87805, 0, -109.700714, 0, 0, 0, 0, 0, 0, -358.48425, 0, -171.78046, 0, 0, 0, 0, 0, 0, -337.8179, 0, -261.05762),
-"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -273.6374, 0, -220.77599, 0, 0, 0, 0, 0, 0, -241.51476, 0, -223.95108, 0, 0, 0, 0, 0, 0, -254.10596, 0, -182.07727, 0, 0, 0, 0, 0, 0, -239.3193, 0, -145.03285, 0, 0, 0, 0, 0, 0, -216.71619, 0, -103.833984, 0, 0, 0, 0, 0, 0, -191.85178, 0, -80.433365, 0, 0, 0, 0, 0, 0, -166.64484, 0, -61.396458, 0, 0, 0, 0, 0, 0, -149.4046, 0, -34.217125, 0, 0, 0, 0, 0, 0, -158.35081, 0, -4.411129, 0, 0, 0, 0, 0, 0, -163.34558, 0, 31.054258, 0, 0, 0, 0, 0, 0, -156.1314, 0, 57.348934, 0, 0, 0, 0, 0, 0, -144.92992, 0, 85.006195, 0, 0, 0, 0, 0, 0, -136.7192, 0, 123.27911, 0, 0, 0, 0, 0, 0, -131.84915, 0, 158.32314, 0, 0, 0, 0, 0, 0, -128.59537, 0, 202.81802, 0, 0, 0, 0, 0, 0, -160, 0, 240, 0, 0, 0, 0, 0, 0, -269.70483, 0, 242.17546, 0, 0, 0, 0, 0, 0, -334.47702, 0, 124.2544, 0, 0, 0, 0, 0, 0, -329.0653, 0, 53.764404, 0, 0, 0, 0, 0, 0, -361.86108, 0, -31.652462, 0, 0, 0, 0, 0, 0, -363.87805, 0, -109.700714, 0, 0, 0, 0, 0, 0, -358.48425, 0, -171.78046, 0, 0, 0, 0, 0, 0, -337.8179, 0, -261.05762),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
-point_count = 19
+point_count = 23
 
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_testhole"]
 height = 12.0
@@ -401,7 +401,7 @@ shadow_opacity = 0.8
 shadow_blur = 4.592
 
 [node name="Rain" type="Node3D" parent="." unique_id=1570342401]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1999.98, -8.7421904e-05)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -111.7782, 1999.98, -7.507578)
 script = ExtResource("60_rain")
 intensity = 0.0
 lens_drops_enabled = false
@@ -457,6 +457,7 @@ shape = SubResource("CylinderShape3D_5s6u7")
 debug_color = Color(0.8128558, 0.030233042, 0.97549945, 0.41960785)
 
 [node name="Water" type="MeshInstance3D" parent="." unique_id=946478083]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -111, 0, -7)
 layers = 524288
 sorting_offset = 999.0
 material_override = ExtResource("5_lt75t")
@@ -743,7 +744,7 @@ max_distance = 1500.0
 curve = SubResource("Curve3D_shorezone")
 script = ExtResource("100_shorezone")
 baked = ExtResource("101_shoremap")
-baked_rect = Rect2(-364.87805, -262.05762, 267, 506)
+baked_rect = Rect2(-424.87805, -322.05762, 387, 626)
 
 [node name="TestWaveHole" type="Area3D" parent="." unique_id=1426995111]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 85.387695, 0, 131.02925)
