@@ -275,6 +275,9 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 @export_range(0.0, 2.0, 0.01) var shore_stagger := 0.6
 ## Width of the foam band along the shoreline (m), drawn like contact foam (0 = off).
 @export_range(0.0, 60.0, 0.5, 'suffix:m') var shore_foam_width := 20.0
+## How far the shoreline foam band bends in and out with the swash's tongues (m), in the same
+## pattern, a new one every wave.
+@export_range(0.0, 10.0, 0.05, 'suffix:m') var shore_foam_wobble := 1.5
 ## How solid the shoreline foam is: 1 = like contact foam, higher fills in its lace.
 @export_range(0.5, 4.0, 0.05) var shore_foam_opacity := 1.6
 ## Depth where the longest waves (the largest cascade) are no longer calmed by the floor (m).
@@ -715,6 +718,7 @@ func _update_shore() -> void:
 	_shore_params_now()
 	WATER_MAT.set_shader_parameter(&'shore_foam_width', shore_foam_width if _shore_rect.z > 0.0 else 0.0)
 	WATER_MAT.set_shader_parameter(&'shore_foam_opacity', shore_foam_opacity)
+	WATER_MAT.set_shader_parameter(&'shore_foam_wobble', shore_foam_wobble)
 	WATER_MAT.set_shader_parameter(&'swash_foam_width', shore_swash_foam_width)
 	WATER_MAT.set_shader_parameter(&'swash_sheen', shore_swash_sheen)
 	RenderingServer.global_shader_parameter_set(&'shore_a', _shore_a)

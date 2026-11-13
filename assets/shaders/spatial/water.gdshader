@@ -305,6 +305,8 @@ uniform float contact_shore_depth : hint_range(0.0, 100.0, 0.1) = 20.0;
 uniform float shore_foam_width = 0.0;
 /** How solid the shoreline band is: its foam is scaled up by this (water.gd's shore_foam_opacity). */
 uniform float shore_foam_opacity = 1.0;
+/** How far the shoreline band bends with the swash's tongues (m), from water.gd's shore_foam_wobble. */
+uniform float shore_foam_wobble = 0.0;
 /** Width of the lace along the swash's leading edge (m), from water.gd's shore_swash_foam_width. */
 uniform float swash_foam_width = 1.5;
 /** How much the thin sheet of swash on the sand shows (its sheen), from water.gd. */
@@ -381,6 +383,7 @@ varying vec3 shore_depth; // Shore zone (see shore.gdshaderinc): (depth to the f
 varying vec2 shore_slope; // Slope of the shore waves (dh/dx, dh/dz).
 varying float shore_foam;
 varying float swash_front; // How high up the beach the swash has climbed (m above sea level), see shore_swash().
+varying float swash_shift; // How far the shoreline foam band is bent inland here, with the swash's tongues (m).
 
 // Wave-blocker attenuation at a rest position (pre-displacement). Returns
 // (mask, hole, calm height): mask 0 inside a blocker rising to 1 across its fade width;
@@ -592,7 +595,11 @@ void vertex() {
 		shore_slope = (vec2(shore_wave(shore_sample(xz_x), xz_x).x,
 				shore_wave(shore_sample(xz_z), xz_z).x) * blocker_mask - shore_wave_here.x) * 2.0;
 	}
-	swash_front = shore_swash(shore, VERTEX.xz);
+	vec3 swash = shore_swash_parts(shore, VERTEX.xz);
+	swash_front = swash.x;
+	// The foam band along the shoreline bends in the swash's own tongue pattern, by its own size:
+	// on a steep beach the tongues move the water's edge only a few cm, too little to show.
+	swash_shift = clamp(shore_foam_wobble * swash.z, -0.5 * shore_foam_width, 0.5 * shore_foam_width);
 	// The swash's edge is cut per pixel (see fragment), at the true contour where its level meets
 	// the sand, not along the mesh's triangles (a zigzag). For that the mesh must stay just above
 	// the sand a little past the front: those vertices lift onto it, and the cut hides them. Far
@@ -821,7 +828,7 @@ void fragment() {
 	// and lace) spans shore_foam_width. From the baked map, so it costs nothing and holds still.
 	float shore_share = 0.0; // 1 where the shoreline band, not an object, is the nearest
 	if (shore_foam_width > 0.0 && shore_depth.z < 1000.0) {
-		float shore_gap = max(shore_depth.z, 0.0) * contact_foam_width / shore_foam_width;
+		float shore_gap = max(shore_depth.z + swash_shift, 0.0) * contact_foam_width / shore_foam_width;
 		shore_share = shore_gap < contact_gap ? 1.0 : 0.0;
 		contact_gap = min(contact_gap, shore_gap);
 	}
@@ -830,18 +837,25 @@ void fragment() {
 	// front (behind it, down the slope) takes its place, and the shoreline band fades within a
 	// couple of metres of the waterline.
 	float swash_share = 0.0;
-	if (-shore_depth.x > -0.2 && swash_front > 0.0) {
+	if (-shore_depth.x > -0.4 && swash_front > 0.0) {
 		bool sand_sky;
 		vec3 under = scene_world_at(depth_texture, SCREEN_UV, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, sand_sky);
 		if (!sand_sky && under.y > world_frag.y - 0.5) {
 			float from_front = max(swash_front - under.y, 0.0) / max(length(shore_slope), 0.05); // m
-			float from_line = max(-shore_depth.z, 0.0); // m above the shoreline
+			float from_line = max(-(shore_depth.z + swash_shift), 0.0); // m above the shoreline (as the tongues move it)
+			// Still seaward of the (bent) shoreline: the band as out on the water, so the two meet
+			// without a seam wherever the wobble carries the line.
+			float line_gap = from_line > 0.0 ? from_line * contact_foam_width / 4.0
+					: max(shore_depth.z + swash_shift, 0.0) * contact_foam_width / max(shore_foam_width, 0.01);
 			float scale = contact_foam_width / max(swash_foam_width, 0.01);
 			// Offset into the band's edge, so even the front itself is torn lace, not a solid line.
 			// The shoreline's white water thins out over the first few metres up the sand.
-			contact_gap = min((from_front + 0.25 * swash_foam_width) * scale, from_line * contact_foam_width / 4.0);
-			shore_share = 1.0 - smoothstep(0.0, 4.0, from_line);
-			swash_share = 1.0;
+			// Taken over gradually from the water's own foam (whose contact search sees the sand under
+			// the shallows): a hard switch drew a seam along the beach where the wobble moved the band.
+			float take = smoothstep(-0.4, -0.1, -shore_depth.x);
+			contact_gap = mix(contact_gap, min((from_front + 0.25 * swash_foam_width) * scale, line_gap), take);
+			shore_share = mix(shore_share, 1.0 - smoothstep(0.0, 4.0, from_line), take);
+			swash_share = take;
 		}
 	}
 	vec2 contact = contact_foam_eval(contact_gap, world_frag.xz, TIME);

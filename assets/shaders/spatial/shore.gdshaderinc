@@ -36,7 +36,8 @@ float shore_damp(vec4 s, float wavelength) {
 // step. Not past the run-up reach inland, so hollows behind the dunes stay dry.
 // Along the beach the front is never a smooth line: it runs up in tongues and scallops, some
 // reaching further than others, a different pattern every wave (shore_c.w: how much).
-float shore_swash(vec4 s, vec2 xz) {
+// Returns (height, the tongues' share of it, the tongue pattern itself: -1..1, easing in and out).
+vec3 shore_swash_parts(vec4 s, vec2 xz) {
 	float clock = shore_c.x + s.w * shore_a.w;
 	float q = fract(clock); // 0 = a crest arrives at the shoreline
 	float n = floor(clock);
@@ -50,8 +51,16 @@ float shore_swash(vec4 s, vec2 xz) {
 	// the front as rings of water standing on their own. The foam lace frays the edge finer.
 	float lobes = sin(dot(xz, vec2(0.61, 0.79)) * 0.55 + a * 3.0) * 0.6 // tongues, ~11 m apart
 			+ sin(dot(xz, vec2(-0.83, 0.56)) * 1.3 + a * 5.0) * 0.4; // scallops, ~5 m
-	return shore_b.y * (1.0 + shore_c.y * (2.0 * h - 1.0)) * (1.0 + shore_c.w * lobes) * r
-			* smoothstep(-reach, -0.7 * reach, s.y);
+	float fade = smoothstep(-reach, -0.7 * reach, s.y);
+	float even = shore_b.y * (1.0 + shore_c.y * (2.0 * h - 1.0)) * r * fade;
+	// The pattern's own envelope eases in and out (no kink where a new wave's uprush begins, which
+	// drew a crease through the foam there).
+	float ease = sin(3.14159265 * q);
+	return vec3(even * (1.0 + shore_c.w * lobes), even * shore_c.w * lobes, lobes * ease * ease * fade);
+}
+
+float shore_swash(vec4 s, vec2 xz) {
+	return shore_swash_parts(s, xz).x;
 }
 
 // The shore waves at a rest position: (height, foam).
