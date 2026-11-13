@@ -854,7 +854,15 @@ void fragment() {
 		world_pos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, depth_tex, 1.0);
 		world_pos.xyz /= world_pos.w;
 	}
-	float smooth_alpha = 1.0 - smoothstep(world_pos.z + 0.66, world_pos.z, VERTEX.z);
+	// Soft edge where the water thins out over the sand. Measured straight down to the floor:
+	// along the view it depends on the angle -- looking steeply down by your feet the path through
+	// shallow water is short, further out at a grazing angle long -- which drew a ring of glassy
+	// water (with a foam line on it) around the player that moved with them. Something above the
+	// water behind it (a rock seen past a crest) keeps the old along-the-view edge.
+	float behind_y = (INV_VIEW_MATRIX * vec4(world_pos.xyz, 1.0)).y;
+	float smooth_alpha = behind_y < world_frag.y
+			? smoothstep(0.0, 0.5, world_frag.y - behind_y)
+			: 1.0 - smoothstep(world_pos.z + 0.66, world_pos.z, VERTEX.z);
 	ALPHA *= clamp(smooth_alpha, 0.00, 1.0);
 	if (ALPHA < 0.9){
 		foam_factor = clamp(foam_factor + 0.5 - ALPHA, 0.0, 1.0);
@@ -874,7 +882,6 @@ void fragment() {
 	// Not what lies below the surface: from above the sea, the view through a crest meets the next
 	// wave, never the deep, and the deep must not darken it.
 	float crest = crest_amount(wave_height);
-	float behind_y = (INV_VIEW_MATRIX * vec4(world_pos.xyz, 1.0)).y;
 	bool above_sea = depth_tex <= 0.0 || behind_y > world_frag.y - wave_height;
 	float colour_path = above_sea
 			? mix(through_water, min(through_water, 1.0), clamp(crest, 0.0, 1.0) * sss_see_through)
