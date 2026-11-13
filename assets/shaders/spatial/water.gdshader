@@ -305,6 +305,10 @@ uniform float contact_shore_depth : hint_range(0.0, 100.0, 0.1) = 20.0;
 uniform float shore_foam_width = 0.0;
 /** How solid the shoreline band is: its foam is scaled up by this (water.gd's shore_foam_opacity). */
 uniform float shore_foam_opacity = 1.0;
+/** Width of the lace along the swash's leading edge (m), from water.gd's shore_swash_foam_width. */
+uniform float swash_foam_width = 1.5;
+/** How much the thin sheet of swash on the sand shows (its sheen), from water.gd. */
+uniform float swash_sheen = 0.3;
 uniform int contact_body_count = 0;
 uniform vec4 contact_bodies[16]; // (centre, radius), set every frame by water.gd.
 group_uniforms;
@@ -819,6 +823,25 @@ void fragment() {
 		shore_share = shore_gap < contact_gap ? 1.0 : 0.0;
 		contact_gap = min(contact_gap, shore_gap);
 	}
+	// The swash on the sand: clear water with lace along its leading edge, not one white sheet.
+	// The contact search finds the sand a few cm under it everywhere, so here the distance to the
+	// front (behind it, down the slope) takes its place, and the shoreline band fades within a
+	// couple of metres of the waterline.
+	float swash_share = 0.0;
+	if (-shore_depth.x > -0.2 && swash_front > 0.0) {
+		bool sand_sky;
+		vec3 under = scene_world_at(depth_texture, SCREEN_UV, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, sand_sky);
+		if (!sand_sky && under.y > world_frag.y - 0.5) {
+			float from_front = max(swash_front - under.y, 0.0) / max(length(shore_slope), 0.05); // m
+			float from_line = max(-shore_depth.z, 0.0); // m above the shoreline
+			float scale = contact_foam_width / max(swash_foam_width, 0.01);
+			// Offset into the band's edge, so even the front itself is torn lace, not a solid line.
+			// The shoreline's white water thins out over the first few metres up the sand.
+			contact_gap = min((from_front + 0.25 * swash_foam_width) * scale, from_line * contact_foam_width / 4.0);
+			shore_share = 1.0 - smoothstep(0.0, 4.0, from_line);
+			swash_share = 1.0;
+		}
+	}
 	vec2 contact = contact_foam_eval(contact_gap, world_frag.xz, TIME);
 	contact.x = mix(contact.x, min(contact.x * shore_foam_opacity, 1.0), shore_share);
 
@@ -894,8 +917,9 @@ void fragment() {
 			? smoothstep(0.0, 0.5, world_frag.y - behind_y)
 			: 1.0 - smoothstep(world_pos.z + 0.66, world_pos.z, VERTEX.z);
 	ALPHA *= clamp(smooth_alpha, 0.00, 1.0);
-	// Foam floats on the water: it stays as solid where the water itself thins to clear.
-	ALPHA = max(ALPHA, clamp(contact.x, 0.0, 1.0));
+	// Foam floats on the water: it stays as solid where the water itself thins to clear. The swash's
+	// sheet is a few cm thick, nearly clear by depth: a little sheen keeps the wet sand reading.
+	ALPHA = max(ALPHA, max(clamp(contact.x, 0.0, 1.0), swash_share * swash_sheen));
 	// On the beach, nothing above the swash's front: a sharp wet edge that follows the sand.
 	ALPHA *= 1.0 - step(-0.5, -shore_depth.x) * smoothstep(swash_front - 0.03, swash_front, behind_y);
 	if (ALPHA < 0.9){

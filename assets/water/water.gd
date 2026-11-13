@@ -262,6 +262,10 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 @export_range(0.0, 1.0, 0.01) var shore_run_up_variation := 0.35
 ## Thickness of the sheet of water the swash spreads on the sand (m).
 @export_range(0.01, 0.5, 0.005, 'suffix:m') var shore_swash_film := 0.06
+## Width of the foam lace along the swash's leading edge (m); behind it the sheet is clear.
+@export_range(0.1, 6.0, 0.05, 'suffix:m') var shore_swash_foam_width := 1.5
+## How much the clear sheet of swash shows on the sand (0 = only its foam).
+@export_range(0.0, 1.0, 0.01) var shore_swash_sheen := 0.3
 ## Furthest inland the run-up may reach (m); hollows beyond it stay dry.
 @export_range(1.0, 100.0, 0.5, 'suffix:m') var shore_run_up_reach := 25.0
 ## How much the crests are staggered along the coast, in waves (0 = all in step).
@@ -704,6 +708,8 @@ func _update_shore() -> void:
 	_shore_params_now()
 	WATER_MAT.set_shader_parameter(&'shore_foam_width', shore_foam_width if _shore_rect.z > 0.0 else 0.0)
 	WATER_MAT.set_shader_parameter(&'shore_foam_opacity', shore_foam_opacity)
+	WATER_MAT.set_shader_parameter(&'swash_foam_width', shore_swash_foam_width)
+	WATER_MAT.set_shader_parameter(&'swash_sheen', shore_swash_sheen)
 	RenderingServer.global_shader_parameter_set(&'shore_a', _shore_a)
 	RenderingServer.global_shader_parameter_set(&'shore_b', _shore_b)
 	RenderingServer.global_shader_parameter_set(&'shore_c', _shore_c)
