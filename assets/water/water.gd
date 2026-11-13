@@ -263,6 +263,8 @@ enum MeshQuality { LOW, HIGH, HIGH8K }
 @export_range(0.0, 2.0, 0.01) var shore_stagger := 0.6
 ## Width of the foam band along the shoreline (m), drawn like contact foam (0 = off).
 @export_range(0.0, 60.0, 0.5, 'suffix:m') var shore_foam_width := 20.0
+## How solid the shoreline foam is: 1 = like contact foam, higher fills in its lace.
+@export_range(0.5, 4.0, 0.05) var shore_foam_opacity := 1.6
 ## Depth where the longest waves (the largest cascade) are no longer calmed by the floor (m).
 ## Shorter cascades keep going into shallower water, in proportion to their tile length.
 @export_range(1.0, 300.0, 0.5, 'suffix:m') var shore_damping_depth := 40.0
@@ -682,6 +684,7 @@ func _update_shore() -> void:
 			underwater_effect.shore_texture = RenderingServer.texture_get_rd_texture(tex.get_rid()) if tex else RID()
 	_shore_params_now()
 	WATER_MAT.set_shader_parameter(&'shore_foam_width', shore_foam_width if _shore_rect.z > 0.0 else 0.0)
+	WATER_MAT.set_shader_parameter(&'shore_foam_opacity', shore_foam_opacity)
 	RenderingServer.global_shader_parameter_set(&'shore_a', _shore_a)
 	RenderingServer.global_shader_parameter_set(&'shore_b', _shore_b)
 	if underwater_effect:

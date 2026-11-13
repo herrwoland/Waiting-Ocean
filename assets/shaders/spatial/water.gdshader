@@ -303,6 +303,8 @@ uniform float contact_shore_depth : hint_range(0.0, 100.0, 0.1) = 20.0;
 /** Width of the foam band along a shoreline in a shore zone's map (m), set by water.gd from its
  *  shore_foam_width. Drawn like contact foam, from the baked distance to the shore. 0 = off. */
 uniform float shore_foam_width = 0.0;
+/** How solid the shoreline band is: its foam is scaled up by this (water.gd's shore_foam_opacity). */
+uniform float shore_foam_opacity = 1.0;
 uniform int contact_body_count = 0;
 uniform vec4 contact_bodies[16]; // (centre, radius), set every frame by water.gd.
 group_uniforms;
@@ -795,10 +797,14 @@ void fragment() {
 	}
 	// The shoreline's own band: the distance to it, scaled so contact foam's look (its core, rings
 	// and lace) spans shore_foam_width. From the baked map, so it costs nothing and holds still.
+	float shore_share = 0.0; // 1 where the shoreline band, not an object, is the nearest
 	if (shore_foam_width > 0.0 && shore_depth.z < 1000.0) {
-		contact_gap = min(contact_gap, max(shore_depth.z, 0.0) * contact_foam_width / shore_foam_width);
+		float shore_gap = max(shore_depth.z, 0.0) * contact_foam_width / shore_foam_width;
+		shore_share = shore_gap < contact_gap ? 1.0 : 0.0;
+		contact_gap = min(contact_gap, shore_gap);
 	}
 	vec2 contact = contact_foam_eval(contact_gap, world_frag.xz, TIME);
+	contact.x = mix(contact.x, min(contact.x * shore_foam_opacity, 1.0), shore_share);
 
 	// Ship wake: foam cut from the foam pattern (two drifting layers), plus lighter churned water.
 	vec2 wake = wake_sample(world_frag.xz);
@@ -872,6 +878,8 @@ void fragment() {
 			? smoothstep(0.0, 0.5, world_frag.y - behind_y)
 			: 1.0 - smoothstep(world_pos.z + 0.66, world_pos.z, VERTEX.z);
 	ALPHA *= clamp(smooth_alpha, 0.00, 1.0);
+	// Foam floats on the water: it stays as solid where the water itself thins to clear.
+	ALPHA = max(ALPHA, clamp(contact.x, 0.0, 1.0));
 	if (ALPHA < 0.9){
 		foam_factor = clamp(foam_factor + 0.5 - ALPHA, 0.0, 1.0);
 	}
@@ -910,7 +918,10 @@ void fragment() {
 	// from a smudge into a shadow.
 	float blocking = exp(-through_water / max(submerged_shadow_range, 1.0))
 			* clamp(1.0 - dot(screen_albedo, vec3(0.3333)), 0.0, 1.0);
-	ALBEDO *= 1.0 - blocking * submerged_shadow;
+	// Foam lies on top: the shadow of what is below must not dim it (over sunlit shallows the
+	// "dark mass" is the sand, darkest straight below the camera, which ate a hole in the shore
+	// foam around the player).
+	ALBEDO *= 1.0 - blocking * submerged_shadow * (1.0 - clamp(max(foam_factor * foam_alpha * foam_alpha, contact.x), 0.0, 1.0));
 	METALLIC = metallic * (1.0 - clamp(max(foam_factor * foam_alpha * foam_alpha, contact.x), 0.0, 1.0));
 	foam_factor = max(foam_factor, contact.x); // Contact foam is matte and lit like foam too.
 	// Fresnel needs the wave normal, so it is worked out at the end, once NORMAL is set.
