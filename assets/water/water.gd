@@ -394,6 +394,8 @@ var _shore_a := Vector4.ZERO
 var _shore_b := Vector4.ZERO
 var _shore_c := Vector4.ZERO
 var _shore_clock := 0.0 # Waves so far (wrapped at 256): shore_c.x, the phase is its fraction.
+var _shore_amplitude := -1.0 # The sea's wave size, smoothed over SHORE_AMPLITUDE_SMOOTHING (see _shore_params_now).
+const SHORE_AMPLITUDE_SMOOTHING := 15.0 # s
 var _shore_frame := -1
 var _cascade_height_var := PackedFloat32Array() # See _measure_wave_amplitude.
 var _wave_amplitude := -1.0
@@ -700,7 +702,19 @@ func _shore_params_now() -> void:
 	_shore_frame = frame
 	if is_inside_tree() and can_process():
 		_shore_clock = fposmod(_shore_clock + get_process_delta_time() / maxf(shore_wave_period, 0.1), 256.0)
-	var height := clampf(shore_wave_height * maxf(_wave_amplitude, 0.0) * 0.5, shore_wave_min_height, maxf(shore_wave_max_height, shore_wave_min_height))
+	# The shore waves follow the sea state, not its second-to-second wobble (a few % as crests come
+	# and go): the run-up is worked out from this for every wave, the ones already gone included,
+	# so a wobbling height made the wet mark on the sand breathe in and out with it.
+	if _shore_amplitude < 0.0:
+		_shore_amplitude = _wave_amplitude # stays unset (< 0) until the sea has been measured
+	elif is_inside_tree() and can_process():
+		# A real change of sea state (a new weather, the sea still building up after loading) is
+		# followed within seconds; the wobble, over SHORE_AMPLITUDE_SMOOTHING.
+		var target := maxf(_wave_amplitude, 0.0)
+		var change := absf(target - _shore_amplitude) / maxf(_shore_amplitude, 0.1)
+		var seconds := lerpf(SHORE_AMPLITUDE_SMOOTHING, 1.5, smoothstep(0.08, 0.2, change))
+		_shore_amplitude = lerpf(_shore_amplitude, target, 1.0 - exp(-get_process_delta_time() / seconds))
+	var height := clampf(shore_wave_height * maxf(_shore_amplitude, 0.0) * 0.5, shore_wave_min_height, maxf(shore_wave_max_height, shore_wave_min_height))
 	_shore_a = Vector4(height, shore_wavelength, fposmod(_shore_clock, 1.0), shore_stagger)
 	_shore_c = Vector4(_shore_clock, shore_run_up_variation, shore_swash_film, shore_swash_lobes)
 	var longest := 0.0

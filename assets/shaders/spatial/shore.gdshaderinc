@@ -103,7 +103,12 @@ float shore_wetness(vec4 s, vec2 xz) {
 			wet = max(wet, exp(-max(q + float(back) - left, 0.0) / shore_d.x));
 		}
 	}
-	return wet;
+	// Below where the waves keep reaching (a fairly high one's run-up) the sand never dries: a
+	// still damp band whose edge only moves with the sea state, so the mark does not jump up the
+	// beach and back with each bigger wave. Those still darken the sand above it for a while.
+	float reach = max(shore_b.z, 1.0);
+	float mark = shore_b.y * (1.0 + 0.5 * shore_c.y) * smoothstep(-reach, -0.7 * reach, s.y);
+	return max(wet, 0.7 * (1.0 - smoothstep(0.85 * mark, mark, sand_y)));
 }
 
 // The shore waves at a rest position: (height, foam).
