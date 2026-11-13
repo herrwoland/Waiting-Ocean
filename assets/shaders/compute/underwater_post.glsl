@@ -182,7 +182,7 @@ float wave_height(vec2 xz) {
 		d = displacement(rest) * (1.0 - shape.y) * calm.x;
 		rest = xz - d.xz;
 	}
-	return p.effect2.y + d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest));
+	return p.effect2.y + d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest)) * calm.x;
 }
 
 #ifndef MODE_SHAFTS

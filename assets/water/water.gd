@@ -394,7 +394,7 @@ func get_wave_height(global_position: Vector3, masked: bool = true) -> float:
 	for i in 3:
 		displacement = _cpu_displacement(rest) * wave_scale
 		rest = xz - Vector2(displacement.x, displacement.z)
-	return displacement.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest))
+	return displacement.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest)) * calm.x
 
 ## Where a piece of the water surface is right now, given where it sits at rest (x, z with no
 ## waves): the waves carry it round in a small loop as well as up and down. Following one piece
@@ -405,7 +405,7 @@ func surface_point(rest: Vector2, masked: bool = true) -> Vector3:
 	var calm := blocker_calm(Vector3(rest.x, 0.0, rest.y)) if masked else Vector2(1.0, 0.0)
 	var wave_scale := (1.0 - shape.y) * calm.x
 	var d := _cpu_displacement(rest) * wave_scale
-	var y := d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest))
+	var y := d.y + shape.x + calm.y * (1.0 - calm.x) + shore_wave(shore_sample(rest)) * calm.x
 	return Vector3(rest.x + d.x, y, rest.y + d.z) # same height convention as get_wave_height()
 
 ## The rest position (see surface_point) of the water that is over `global_position` right now.
@@ -671,7 +671,7 @@ func _update_shore() -> void:
 		_shore_img = zone.baked if zone else null
 		var tex: Texture2D = zone.texture if zone else null
 		RenderingServer.global_shader_parameter_set(&'shore_map', tex)
-		var r: Rect2 = zone.baked_rect if zone else Rect2()
+		var r: Rect2 = zone.map_rect() if zone else Rect2()
 		_shore_rect = Vector4(r.position.x, r.position.y, 1.0 / r.size.x, 1.0 / r.size.y) if tex and r.size.x > 0.0 else Vector4.ZERO
 		RenderingServer.global_shader_parameter_set(&'shore_rect', _shore_rect)
 		if underwater_effect:

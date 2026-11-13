@@ -571,13 +571,14 @@ void vertex() {
 	// Calmed water lies on its blocker's calm plane: sea level by a shore, the swell under a ship.
 	float calm_lift = blocker.z * (1.0 - blocker_mask);
 	// Shore waves (no distance fade: the CPU never fades them either). Their slope comes from two
-	// more looks half a metre away, only inside a shore zone.
-	vec2 shore_wave_here = shore_wave(shore);
+	// more looks half a metre away, only inside a shore zone. A calm zone calms them like any wave
+	// (a hull's calm plane already follows them, see _wave_plane in water.gd).
+	vec2 shore_wave_here = shore_wave(shore) * blocker_mask;
 	shore_foam = shore_wave_here.y;
 	shore_slope = vec2(0.0);
 	if (shore.z > 0.0) {
 		shore_slope = (vec2(shore_wave(shore_sample(VERTEX.xz + vec2(0.5, 0.0))).x,
-				shore_wave(shore_sample(VERTEX.xz + vec2(0.0, 0.5))).x) - shore_wave_here.x) * 2.0;
+				shore_wave(shore_sample(VERTEX.xz + vec2(0.0, 0.5))).x) * blocker_mask - shore_wave_here.x) * 2.0;
 	}
 	wave_height += shore_wave_here.x;
 	VERTEX.y += shape.x + calm_lift + shore_wave_here.x;

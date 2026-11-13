@@ -42,6 +42,10 @@ func _ready() -> void:
 	if baked and not Engine.is_editor_hint():
 		texture = ImageTexture.create_from_image(baked)
 
+## World XZ area the baked map covers (stored in the map itself; baked_rect for older maps).
+func map_rect() -> Rect2:
+	return baked.get_meta(&'rect', baked_rect) if baked else baked_rect
+
 ## The outline in world XZ.
 func outline() -> PackedVector2Array:
 	var poly := PackedVector2Array()
@@ -93,7 +97,7 @@ func bake() -> void:
 				var hit := space.intersect_ray(query)
 				if hit.is_empty(): break
 				var top: float = hit.position.y
-				if hit.collider is RigidBody3D or hit.collider is CharacterBody3D or _is_deck(space, hit, pos, top):
+				if _is_afloat(hit.collider) or _is_deck(space, hit, pos, top):
 					query.exclude = query.exclude + [hit.rid] # boats, the player, piers: not the ground
 					continue
 				floor_y = maxf(floor_y, top)
@@ -146,6 +150,7 @@ func bake() -> void:
 			img.set_pixel(x, y, Color(depth[i], shore[i], inside, clampf(0.5 + 0.5 * noise.get_noise_2dv(pos), 0.0, 1.0)))
 
 	baked_rect = Rect2(bb.position, Vector2(w, h) * texel)
+	img.set_meta(&'rect', baked_rect) # travels with the map, so the two can never disagree
 	if Engine.is_editor_hint():
 		DirAccess.make_dir_recursive_absolute(SAVE_DIR)
 		var path := SAVE_DIR + '%s_%s.res' % [owner.name if owner else 'scene', name]
@@ -154,6 +159,16 @@ func bake() -> void:
 	baked = img
 	texture = ImageTexture.create_from_image(img)
 	print('ShoreZone "%s": baked %dx%d texels of %.2f m in %d ms.' % [name, w, h, texel, Time.get_ticks_msec() - t0])
+
+## Something that moves about: a boat (its decks are StaticBody3D pieces inside the hull's
+## RigidBody3D), the player. Never the ground.
+static func _is_afloat(collider: Object) -> bool:
+	var node := collider as Node
+	while node:
+		if node is RigidBody3D or node is CharacterBody3D or node is AnimatableBody3D:
+			return true
+		node = node.get_parent()
+	return false
 
 ## A pier, jetty or anything else standing over open water: below its underside the ray drops
 ## more than half a metre before it meets the next thing. Waves run under it, not up it.
