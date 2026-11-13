@@ -300,6 +300,9 @@ uniform float contact_tint_strength : hint_range(0.0, 1.0, 0.01) = 0.5;
  * finds terrain close by, or where the sea floor behind the water is closer than this (m).
  * Out on the open sea it is skipped. */
 uniform float contact_shore_depth : hint_range(0.0, 100.0, 0.1) = 20.0;
+/** Width of the foam band along a shoreline in a shore zone's map (m), set by water.gd from its
+ *  shore_foam_width. Drawn like contact foam, from the baked distance to the shore. 0 = off. */
+uniform float shore_foam_width = 0.0;
 uniform int contact_body_count = 0;
 uniform vec4 contact_bodies[16]; // (centre, radius), set every frame by water.gd.
 group_uniforms;
@@ -368,7 +371,7 @@ varying float blocker_mask;
 varying float blocker_hole;
 varying float underside; // 1.0 when this fragment is the water surface seen from below.
 varying float rain_wet; // How rain-beaten this bit of surface is (0..1), for the lighting.
-varying vec2 shore_depth; // Shore zone (see shore.gdshaderinc): (depth to the floor, zone weight), for the normals.
+varying vec3 shore_depth; // Shore zone (see shore.gdshaderinc): (depth to the floor, zone weight, distance to the shoreline).
 varying vec2 shore_slope; // Slope of the shore waves (dh/dx, dh/dz).
 varying float shore_foam;
 
@@ -543,7 +546,7 @@ void vertex() {
 	blocker_mask = blocker.x;
 	blocker_hole = blocker.y;
 	vec4 shore = shore_sample(VERTEX.xz);
-	shore_depth = shore.xz;
+	shore_depth = shore.xzy;
 	// is optimized: first check if the distance is greater than 150 meters.
 	// if so, then don't calculate the displacement.
 	float distance_cam = length(VERTEX.xz - CAMERA_POSITION_WORLD.xz);
@@ -789,6 +792,11 @@ void fragment() {
 			float cover = quad_hits / float(max(contact_foam_samples, 1));
 			contact_gap = min(contact_gap, near_gap + (1.0 - smoothstep(0.08, 0.3, cover)) * reach);
 		}
+	}
+	// The shoreline's own band: the distance to it, scaled so contact foam's look (its core, rings
+	// and lace) spans shore_foam_width. From the baked map, so it costs nothing and holds still.
+	if (shore_foam_width > 0.0 && shore_depth.z < 1000.0) {
+		contact_gap = min(contact_gap, max(shore_depth.z, 0.0) * contact_foam_width / shore_foam_width);
 	}
 	vec2 contact = contact_foam_eval(contact_gap, world_frag.xz, TIME);
 
